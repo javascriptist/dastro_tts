@@ -730,6 +730,8 @@
       let recordingStartedAt = 0;
       let timerHandle = null;
       let recording = false;
+      let modelReady = false;
+      let healthPollHandle = null;
 
       function formatTime(seconds) {
         const minutes = Math.floor(seconds / 60).toString().padStart(2, "0");
@@ -759,8 +761,8 @@
         fileSize.textContent = formatBytes(file.size);
         sourceHelp.textContent = "Audio is queued. You can replace it or send it to the model.";
         dropZone.classList.add("has-file");
-        transcribeButton.disabled = false;
-        setFooterState("Audio queued");
+        transcribeButton.disabled = !modelReady;
+        setFooterState(modelReady ? "Audio queued" : "Model loading");
       }
 
       function updateTimer() {
@@ -907,21 +909,43 @@
           requestState.textContent = "Request failed";
           setFooterState("Error", true);
         } finally {
-          transcribeButton.disabled = false;
+          transcribeButton.disabled = !modelReady;
         }
       });
+
+      function updateModelState(payload) {
+        const state = payload.model_state || (payload.model_loaded ? "ready" : "loading");
+        modelReady = state === "ready";
+        transcribeButton.disabled = !selectedFile || !modelReady;
+        healthDot.classList.toggle("ready", modelReady);
+        modelLabel.textContent = `Model: ${payload.model}`;
+        if (state === "ready") {
+          healthLabel.textContent = "Model loaded";
+          if (!recording) setFooterState(selectedFile ? "Audio queued" : "Idle");
+        } else if (state === "error") {
+          healthLabel.textContent = "Model error";
+          if (!recording) setFooterState("Model error", true);
+        } else {
+          healthLabel.textContent = "Loading model";
+          if (!recording) setFooterState("Model loading");
+        }
+      }
 
       async function checkHealth() {
         try {
           const response = await fetch("/health");
           const payload = await response.json();
           if (!response.ok) throw new Error("Health check failed");
-          healthDot.classList.add("ready");
-          healthLabel.textContent = payload.model_loaded ? "Model loaded" : "Service online";
-          modelLabel.textContent = `Model: ${payload.model}`;
+          updateModelState(payload);
+          if (healthPollHandle) window.clearTimeout(healthPollHandle);
+          if (!modelReady) healthPollHandle = window.setTimeout(checkHealth, 5000);
         } catch (_error) {
+          modelReady = false;
+          transcribeButton.disabled = true;
+          healthDot.classList.remove("ready");
           healthLabel.textContent = "Service unavailable";
           setFooterState("Offline", true);
+          healthPollHandle = window.setTimeout(checkHealth, 5000);
         }
       }
 

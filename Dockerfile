@@ -20,4 +20,4 @@ COPY static ./static
 RUN mkdir -p /data/models/whisper-small-uz-v1 /data/huggingface
 
 EXPOSE 8090
-CMD ["sh", "-c", "python download_model.py && exec uvicorn app:app --host 0.0.0.0 --port ${PORT:-8090}"]
+CMD ["sh", "-c", "exec uvicorn app:app --host 0.0.0.0 --port ${PORT:-8090} --log-level ${LOG_LEVEL:-info}"]

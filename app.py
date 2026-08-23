@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import io
+import logging
 import os
 import shutil
 import subprocess
+import sys
 import threading
+import time
 import wave
 from pathlib import Path
 from typing import Any
@@ -26,8 +29,18 @@ MODEL_PATH = Path(os.getenv("MODEL_PATH", str(BASE_DIR / "models" / "whisper-sma
 HF_HOME = Path(os.getenv("HF_HOME", str(BASE_DIR / "models" / "cache")))
 MAX_AUDIO_BYTES = int(os.getenv("MAX_AUDIO_MB", "50")) * 1024 * 1024
 MAX_AUDIO_SECONDS = float(os.getenv("MAX_AUDIO_SECONDS", "300"))
+MAX_NEW_TOKENS = int(os.getenv("MAX_NEW_TOKENS", "128"))
+SHORT_AUDIO_SECONDS = 30.0
 ALLOWED_LANGUAGES = {"auto", "uz", "ru", "en"}
 SAMPLE_RATE = 16_000
+STARTED_AT = time.monotonic()
+
+logging.basicConfig(
+    level=getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO),
+    format="%(asctime)s %(levelname)s dastro-stt %(message)s",
+    stream=sys.stdout,
+)
+logger = logging.getLogger("dastro-stt")
 
 
 def _cors_origins() -> list[str]:
@@ -36,7 +49,8 @@ def _cors_origins() -> list[str]:
 
 
 def _model_source() -> str:
-    if (MODEL_PATH / "config.json").is_file():
+    has_weights = any(MODEL_PATH.glob("model*.safetensors")) or any(MODEL_PATH.glob("pytorch_model*.bin"))
+    if (MODEL_PATH / "config.json").is_file() and has_weights:
         return str(MODEL_PATH)
     return MODEL_ID
 
@@ -136,18 +150,38 @@ class TranscriptionResponse(BaseModel):
 
 class WhisperRuntime:
     def __init__(self) -> None:
+        self._model: Any | None = None
+        self._processor: Any | None = None
         self._pipeline: Any | None = None
+        self._pipeline_device: int | Any = -1
         self._device = "unloaded"
         self._load_lock = threading.Lock()
         self._inference_lock = threading.Lock()
+        self._state = "unloaded"
+        self._last_error: str | None = None
+        self._load_started_at: float | None = None
+        self._load_duration_seconds: float | None = None
 
     @property
     def loaded(self) -> bool:
-        return self._pipeline is not None
+        return self._state == "ready" and self._model is not None and self._processor is not None
 
     @property
     def device(self) -> str:
         return self._device
+
+    @property
+    def state(self) -> str:
+        return self._state
+
+    def status(self) -> dict[str, Any]:
+        return {
+            "model_loaded": self.loaded,
+            "model_state": self._state,
+            "device": self._device,
+            "model_error": self._last_error,
+            "model_load_seconds": self._load_duration_seconds,
+        }
 
     def _resolve_device(self, torch: Any) -> tuple[str, Any, int | Any]:
         requested = _requested_device()
@@ -170,48 +204,113 @@ class WhisperRuntime:
             pipeline_device = torch.device("mps")
         return requested, dtype, pipeline_device
 
-    def load(self) -> None:
-        if self._pipeline is not None:
+    def load(self, wait: bool = True) -> None:
+        if self._model is not None and self._processor is not None:
             return
-        with self._load_lock:
-            if self._pipeline is not None:
+        if not self._load_lock.acquire(blocking=wait):
+            raise RuntimeError("Model is still loading; retry shortly")
+        self._load_started_at = time.monotonic()
+        self._load_duration_seconds = None
+        self._state = "loading"
+        self._last_error = None
+        source = _model_source()
+        logger.info(
+            "model_load_started model_id=%s source=%s device_request=%s",
+            MODEL_ID,
+            source,
+            _requested_device(),
+        )
+        try:
+            if self._model is not None and self._processor is not None:
                 return
             try:
                 import torch
-                from transformers import WhisperForConditionalGeneration, WhisperProcessor, pipeline
+                from transformers import WhisperForConditionalGeneration, WhisperProcessor
 
                 device, dtype, pipeline_device = self._resolve_device(torch)
-                source = _model_source()
+                configured_threads = os.getenv("TORCH_NUM_THREADS")
+                if configured_threads:
+                    torch.set_num_threads(int(configured_threads))
+                    logger.info("torch_threads_configured threads=%s", configured_threads)
                 processor = WhisperProcessor.from_pretrained(source, cache_dir=str(HF_HOME))
+                logger.info("processor_loaded source=%s", source)
                 model = WhisperForConditionalGeneration.from_pretrained(
                     source,
                     cache_dir=str(HF_HOME),
-                    torch_dtype=dtype,
+                    dtype=dtype,
                 )
+                logger.info("model_weights_loaded source=%s device=%s", source, device)
                 model.to(device)
                 model.eval()
-                self._pipeline = pipeline(
-                    "automatic-speech-recognition",
-                    model=model,
-                    tokenizer=processor.tokenizer,
-                    feature_extractor=processor.feature_extractor,
-                    chunk_length_s=30,
-                    stride_length_s=5,
-                    device=pipeline_device,
-                )
+                self._model = model
+                self._processor = processor
+                self._pipeline_device = pipeline_device
                 self._device = device
-            except Exception:
+                self._state = "ready"
+                self._load_duration_seconds = round(time.monotonic() - self._load_started_at, 3)
+                logger.info(
+                    "model_ready model_id=%s device=%s load_seconds=%.3f",
+                    MODEL_ID,
+                    device,
+                    self._load_duration_seconds,
+                )
+            except Exception as error:
+                self._model = None
+                self._processor = None
                 self._pipeline = None
+                self._state = "error"
+                self._last_error = f"{type(error).__name__}: {error}"[:500]
+                logger.exception("model_load_failed model_id=%s source=%s", MODEL_ID, source)
                 raise
+        finally:
+            if self._load_started_at is not None and self._load_duration_seconds is None:
+                self._load_duration_seconds = round(time.monotonic() - self._load_started_at, 3)
+            self._load_lock.release()
 
     def transcribe(self, audio: np.ndarray, language: str) -> str:
-        self.load()
-        generate_kwargs: dict[str, str] = {"task": "transcribe"}
+        self.load(wait=False)
+        generate_kwargs: dict[str, Any] = {"task": "transcribe", "max_new_tokens": MAX_NEW_TOKENS}
         if language != "auto":
             generate_kwargs["language"] = language
         with self._inference_lock:
+            if audio.size <= SAMPLE_RATE * SHORT_AUDIO_SECONDS:
+                import torch
+
+                inputs = self._processor(audio, sampling_rate=SAMPLE_RATE, return_tensors="pt")
+                input_features = inputs.input_features.to(self._device)
+                with torch.inference_mode():
+                    predicted_ids = self._model.generate(input_features, **generate_kwargs)
+                return str(self._processor.batch_decode(predicted_ids, skip_special_tokens=True)[0]).strip()
+
+            if self._pipeline is None:
+                from transformers import pipeline
+
+                logger.info("long_audio_pipeline_started duration_seconds=%.3f", audio.size / SAMPLE_RATE)
+                self._pipeline = pipeline(
+                    "automatic-speech-recognition",
+                    model=self._model,
+                    tokenizer=self._processor.tokenizer,
+                    feature_extractor=self._processor.feature_extractor,
+                    chunk_length_s=30,
+                    stride_length_s=5,
+                    device=self._pipeline_device,
+                )
             result = self._pipeline(audio, generate_kwargs=generate_kwargs)
-        return str(result["text"]).strip()
+            return str(result["text"]).strip()
+
+    def start_preload(self) -> None:
+        if os.getenv("PRELOAD_MODEL", "true").lower() in {"0", "false", "no", "off"}:
+            logger.info("model_preload_disabled")
+            return
+
+        def preload() -> None:
+            try:
+                self.load()
+            except Exception:
+                logger.error("model_preload_failed; inspect /health and service logs")
+
+        threading.Thread(target=preload, name="whisper-model-loader", daemon=True).start()
+        logger.info("model_preload_scheduled model_id=%s", MODEL_ID)
 
 
 runtime = WhisperRuntime()
@@ -223,6 +322,35 @@ app.add_middleware(
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type", "X-API-Key"],
 )
+
+
+@app.on_event("startup")
+async def preload_model() -> None:
+    logger.info(
+        "service_started model_id=%s model_path=%s hf_home=%s",
+        MODEL_ID,
+        MODEL_PATH,
+        HF_HOME,
+    )
+    runtime.start_preload()
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next: Any) -> Any:
+    started_at = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        logger.exception("request_failed method=%s path=%s", request.method, request.url.path)
+        raise
+    logger.info(
+        "request_complete method=%s path=%s status=%s duration_ms=%.1f",
+        request.method,
+        request.url.path,
+        response.status_code,
+        (time.perf_counter() - started_at) * 1000,
+    )
+    return response
 
 
 def _check_api_key(request: Request) -> None:
@@ -245,15 +373,32 @@ async def _transcribe_upload(request: Request, file: UploadFile, language: str) 
     if language not in ALLOWED_LANGUAGES:
         raise HTTPException(status_code=422, detail="language must be auto, uz, ru, or en")
     payload = await _read_audio(file)
+    logger.info(
+        "transcription_started filename=%s content_type=%s bytes=%d language=%s",
+        file.filename or "unknown",
+        file.content_type or "unknown",
+        len(payload),
+        language,
+    )
     try:
         audio = decode_audio(payload)
+    except ValueError as error:
+        logger.warning("audio_decode_failed filename=%s error=%s", file.filename or "unknown", error)
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    try:
         text = await run_in_threadpool(runtime.transcribe, audio, language)
-    except HTTPException:
-        raise
-    except (OSError, RuntimeError, ValueError) as error:
+    except RuntimeError as error:
+        logger.warning("transcription_unavailable state=%s error=%s", runtime.state, error)
         raise HTTPException(status_code=503, detail=str(error)) from error
     except Exception as error:
+        logger.exception("transcription_failed filename=%s", file.filename or "unknown")
         raise HTTPException(status_code=500, detail="Transcription failed") from error
+    logger.info(
+        "transcription_complete filename=%s duration_seconds=%.3f characters=%d",
+        file.filename or "unknown",
+        audio.size / SAMPLE_RATE,
+        len(text),
+    )
     return TranscriptionResponse(
         text=text,
         language=language,
@@ -272,8 +417,8 @@ def health() -> dict[str, Any]:
     return {
         "status": "ok",
         "model": MODEL_ID,
-        "model_loaded": runtime.loaded,
-        "device": runtime.device,
+        "uptime_seconds": round(time.monotonic() - STARTED_AT, 3),
+        **runtime.status(),
     }
 
 
