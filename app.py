@@ -29,7 +29,7 @@ MODEL_PATH = Path(os.getenv("MODEL_PATH", str(BASE_DIR / "models" / "whisper-sma
 HF_HOME = Path(os.getenv("HF_HOME", str(BASE_DIR / "models" / "cache")))
 MAX_AUDIO_BYTES = int(os.getenv("MAX_AUDIO_MB", "50")) * 1024 * 1024
 MAX_AUDIO_SECONDS = float(os.getenv("MAX_AUDIO_SECONDS", "300"))
-MAX_NEW_TOKENS = int(os.getenv("MAX_NEW_TOKENS", "128"))
+MAX_NEW_TOKENS = min(int(os.getenv("MAX_NEW_TOKENS", "64")), 64)
 SHORT_AUDIO_SECONDS = 30.0
 ALLOWED_LANGUAGES = {"auto", "uz", "ru", "en"}
 SAMPLE_RATE = 16_000
@@ -161,6 +161,7 @@ class WhisperRuntime:
         self._last_error: str | None = None
         self._load_started_at: float | None = None
         self._load_duration_seconds: float | None = None
+        self._cpu_quantized = False
 
     @property
     def loaded(self) -> bool:
@@ -179,6 +180,7 @@ class WhisperRuntime:
             "model_loaded": self.loaded,
             "model_state": self._state,
             "device": self._device,
+            "cpu_quantized": self._cpu_quantized,
             "model_error": self._last_error,
             "model_load_seconds": self._load_duration_seconds,
         }
@@ -228,10 +230,10 @@ class WhisperRuntime:
                 from transformers import WhisperForConditionalGeneration, WhisperProcessor
 
                 device, dtype, pipeline_device = self._resolve_device(torch)
-                configured_threads = os.getenv("TORCH_NUM_THREADS")
+                configured_threads = os.getenv("TORCH_NUM_THREADS", "4").strip()
                 if configured_threads:
                     torch.set_num_threads(int(configured_threads))
-                    logger.info("torch_threads_configured threads=%s", configured_threads)
+                logger.info("torch_threads_configured threads=%d", torch.get_num_threads())
                 processor = WhisperProcessor.from_pretrained(source, cache_dir=str(HF_HOME))
                 logger.info("processor_loaded source=%s", source)
                 model = WhisperForConditionalGeneration.from_pretrained(
@@ -241,6 +243,20 @@ class WhisperRuntime:
                 )
                 logger.info("model_weights_loaded source=%s device=%s", source, device)
                 model.to(device)
+                if device == "cpu" and os.getenv("CPU_QUANTIZE", "true").lower() not in {"0", "false", "no", "off"}:
+                    try:
+                        supported_engines = [engine for engine in torch.backends.quantized.supported_engines if engine != "none"]
+                        preferred_engine = os.getenv("TORCH_QUANTIZED_ENGINE", "fbgemm")
+                        quantized_engine = preferred_engine if preferred_engine in supported_engines else (supported_engines[0] if supported_engines else None)
+                        if quantized_engine is None:
+                            raise RuntimeError("PyTorch has no supported quantization engine")
+                        torch.backends.quantized.engine = quantized_engine
+                        model = torch.ao.quantization.quantize_dynamic(model, {torch.nn.Linear}, dtype=torch.qint8)
+                        self._cpu_quantized = True
+                        logger.info("cpu_dynamic_quantization_enabled engine=%s", quantized_engine)
+                    except Exception as error:
+                        self._cpu_quantized = False
+                        logger.exception("cpu_dynamic_quantization_failed; continuing with float32 model")
                 model.eval()
                 self._model = model
                 self._processor = processor
@@ -258,6 +274,7 @@ class WhisperRuntime:
                 self._model = None
                 self._processor = None
                 self._pipeline = None
+                self._cpu_quantized = False
                 self._state = "error"
                 self._last_error = f"{type(error).__name__}: {error}"[:500]
                 logger.exception("model_load_failed model_id=%s source=%s", MODEL_ID, source)
@@ -269,18 +286,54 @@ class WhisperRuntime:
 
     def transcribe(self, audio: np.ndarray, language: str) -> str:
         self.load(wait=False)
-        generate_kwargs: dict[str, Any] = {"task": "transcribe", "max_new_tokens": MAX_NEW_TOKENS}
+        if not self._inference_lock.acquire(blocking=False):
+            raise RuntimeError("Another transcription is already running; retry shortly")
+        generate_kwargs: dict[str, Any] = {
+            "task": "transcribe",
+            "max_new_tokens": MAX_NEW_TOKENS,
+            "num_beams": 1,
+            "do_sample": False,
+            "use_cache": True,
+        }
         if language != "auto":
             generate_kwargs["language"] = language
-        with self._inference_lock:
+        inference_started_at = time.perf_counter()
+        logger.info(
+            "inference_started duration_seconds=%.3f language=%s max_new_tokens=%d quantized=%s",
+            audio.size / SAMPLE_RATE,
+            language,
+            MAX_NEW_TOKENS,
+            self._cpu_quantized,
+        )
+        try:
             if audio.size <= SAMPLE_RATE * SHORT_AUDIO_SECONDS:
                 import torch
 
-                inputs = self._processor(audio, sampling_rate=SAMPLE_RATE, return_tensors="pt")
+                feature_started_at = time.perf_counter()
+                inputs = self._processor(
+                    audio,
+                    sampling_rate=SAMPLE_RATE,
+                    return_tensors="pt",
+                    return_attention_mask=True,
+                )
                 input_features = inputs.input_features.to(self._device)
+                attention_mask = getattr(inputs, "attention_mask", None)
+                if attention_mask is not None:
+                    attention_mask = attention_mask.to(self._device)
+                logger.info("features_ready duration_ms=%.1f", (time.perf_counter() - feature_started_at) * 1000)
                 with torch.inference_mode():
-                    predicted_ids = self._model.generate(input_features, **generate_kwargs)
-                return str(self._processor.batch_decode(predicted_ids, skip_special_tokens=True)[0]).strip()
+                    if attention_mask is None:
+                        predicted_ids = self._model.generate(input_features, **generate_kwargs)
+                    else:
+                        predicted_ids = self._model.generate(input_features, attention_mask=attention_mask, **generate_kwargs)
+                text = str(self._processor.batch_decode(predicted_ids, skip_special_tokens=True)[0]).strip()
+                logger.info(
+                    "inference_complete duration_seconds=%.3f generation_seconds=%.3f characters=%d",
+                    audio.size / SAMPLE_RATE,
+                    time.perf_counter() - inference_started_at,
+                    len(text),
+                )
+                return text
 
             if self._pipeline is None:
                 from transformers import pipeline
@@ -296,7 +349,16 @@ class WhisperRuntime:
                     device=self._pipeline_device,
                 )
             result = self._pipeline(audio, generate_kwargs=generate_kwargs)
-            return str(result["text"]).strip()
+            text = str(result["text"]).strip()
+            logger.info(
+                "inference_complete duration_seconds=%.3f generation_seconds=%.3f characters=%d",
+                audio.size / SAMPLE_RATE,
+                time.perf_counter() - inference_started_at,
+                len(text),
+            )
+            return text
+        finally:
+            self._inference_lock.release()
 
     def start_preload(self) -> None:
         if os.getenv("PRELOAD_MODEL", "true").lower() in {"0", "false", "no", "off"}:

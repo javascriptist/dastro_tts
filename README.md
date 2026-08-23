@@ -55,15 +55,17 @@ STT_API_KEY=generate-a-long-random-value
 CORS_ORIGINS=https://your-frontend.example
 MAX_AUDIO_MB=50
 MAX_AUDIO_SECONDS=300
-MAX_NEW_TOKENS=128
-TORCH_NUM_THREADS=2
+MAX_NEW_TOKENS=64
+TORCH_NUM_THREADS=4
+CPU_QUANTIZE=true
+TORCH_QUANTIZED_ENGINE=fbgemm
 PRELOAD_MODEL=true
 LOG_LEVEL=INFO
 ```
 
 Do not set `PORT` manually. Railway provides it, and the container uses it automatically. Leave `CORS_ORIGINS` as `*` only for a private test; use the exact frontend origin in production.
 
-The first deployment starts Uvicorn immediately, then downloads and loads the model in the background. Railway checks `/health` while this happens. Watch the logs for `model_load_started`, `model_weights_loaded`, and `model_ready`. Check `/health` until `model_state` is `ready` before sending audio. The service uses one process by design because each additional worker loads another copy of the model into memory. Start with at least 2 GB RAM and increase the service size if CPU inference runs out of memory; CPU inference works but is slower than a GPU.
+The first deployment starts Uvicorn immediately, then downloads and loads the model in the background. Railway checks `/health` while this happens. Watch the logs for `model_load_started`, `model_weights_loaded`, `cpu_dynamic_quantization_enabled`, and `model_ready`. Check `/health` until `model_state` is `ready` before sending audio. The service uses one process by design because each additional worker loads another copy of the model into memory. Start with at least 2 GB RAM and increase the service size if CPU inference runs out of memory; CPU inference works but is slower than a GPU. Dynamic int8 quantization is enabled by default on CPU to reduce inference latency and memory use.
 
 After deployment:
 
@@ -134,8 +136,10 @@ OpenAI-compatible upload shape for clients that only need `{ "text": "..." }`. I
 | `HF_HOME` | `./models/cache` | Hugging Face cache directory |
 | `DEVICE` | `auto` | `auto`, `cpu`, `cuda`, or `mps` |
 | `PRELOAD_MODEL` | `true` | Load the model in a background thread at startup |
-| `MAX_NEW_TOKENS` | `128` | Output limit for short recordings |
-| `TORCH_NUM_THREADS` | empty | Optional CPU thread limit; `2` is a good small Railway default |
+| `MAX_NEW_TOKENS` | `64` | Output limit for short recordings; values above 64 are capped for latency |
+| `TORCH_NUM_THREADS` | `4` | CPU thread limit; tune to the replica's vCPU count |
+| `CPU_QUANTIZE` | `true` | Apply dynamic int8 quantization on CPU |
+| `TORCH_QUANTIZED_ENGINE` | `fbgemm` | Preferred CPU quantization backend; falls back to an installed backend |
 | `LOG_LEVEL` | `INFO` | Application log level |
 | `STT_API_KEY` | empty | Optional `X-API-Key` protection |
 | `CORS_ORIGINS` | `*` | Comma-separated browser origins |
