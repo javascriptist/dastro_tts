@@ -1,0 +1,931 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f2eee6" />
+    <title>Dastro Voice Lab</title>
+    <style>
+      :root {
+        --paper: #f2eee6;
+        --paper-dark: #e8e1d5;
+        --ink: #171817;
+        --muted: #6f746d;
+        --line: rgba(23, 24, 23, 0.17);
+        --teal: #0f7770;
+        --teal-dark: #075c57;
+        --coral: #e56e4d;
+        --yellow: #e4b84f;
+        --white: #fffdf8;
+        --shadow: 0 18px 50px rgba(31, 28, 21, 0.1);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        background: var(--paper);
+      }
+
+      body {
+        min-height: 100vh;
+        margin: 0;
+        color: var(--ink);
+        background-color: var(--paper);
+        background-image: repeating-linear-gradient(0deg, rgba(23, 24, 23, 0.025) 0 1px, transparent 1px 5px);
+        font-family: "Avenir Next", "Trebuchet MS", sans-serif;
+        letter-spacing: 0;
+      }
+
+      body::before {
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        pointer-events: none;
+        content: "";
+        opacity: 0.35;
+        background-image: linear-gradient(90deg, transparent 0 49%, rgba(23, 24, 23, 0.035) 49% 50%, transparent 50% 100%);
+        background-size: 72px 72px;
+      }
+
+      button,
+      input,
+      select {
+        font: inherit;
+        letter-spacing: 0;
+      }
+
+      button {
+        cursor: pointer;
+      }
+
+      button:disabled {
+        cursor: wait;
+        opacity: 0.55;
+      }
+
+      :focus-visible {
+        outline: 3px solid var(--coral);
+        outline-offset: 3px;
+      }
+
+      .shell {
+        width: min(1180px, calc(100% - 48px));
+        margin: 0 auto;
+        padding: 28px 0 44px;
+      }
+
+      .topbar,
+      .brand,
+      .status,
+      .source-heading,
+      .control-row,
+      .output-heading,
+      .output-meta,
+      .button-row,
+      .field-row,
+      .transcript-footer {
+        display: flex;
+        align-items: center;
+      }
+
+      .topbar {
+        justify-content: space-between;
+        min-height: 38px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .brand {
+        gap: 10px;
+        font-size: 13px;
+        font-weight: 800;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+      }
+
+      .brand-mark {
+        display: grid;
+        width: 22px;
+        height: 22px;
+        place-items: center;
+        color: var(--white);
+        background: var(--ink);
+        font-size: 11px;
+        font-weight: 900;
+      }
+
+      .status {
+        gap: 8px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--yellow);
+        box-shadow: 0 0 0 4px rgba(228, 184, 79, 0.2);
+      }
+
+      .status-dot.ready {
+        background: var(--teal);
+        box-shadow: 0 0 0 4px rgba(15, 119, 112, 0.17);
+      }
+
+      .intro {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 280px;
+        gap: 48px;
+        align-items: end;
+        padding: 72px 0 54px;
+      }
+
+      .kicker {
+        margin: 0 0 18px;
+        color: var(--teal);
+        font-size: 12px;
+        font-weight: 900;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      h1,
+      h2,
+      p {
+        margin-top: 0;
+      }
+
+      h1 {
+        max-width: 700px;
+        margin-bottom: 18px;
+        font-family: Rockwell, "Avenir Next", serif;
+        font-size: 64px;
+        font-weight: 800;
+        line-height: 0.98;
+      }
+
+      .intro-copy {
+        max-width: 540px;
+        margin-bottom: 0;
+        color: var(--muted);
+        font-size: 17px;
+        line-height: 1.55;
+      }
+
+      .intro-note {
+        padding: 18px 0 0 22px;
+        border-left: 3px solid var(--coral);
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.55;
+      }
+
+      .intro-note strong {
+        display: block;
+        margin-bottom: 7px;
+        color: var(--ink);
+        font-size: 14px;
+      }
+
+      .workspace {
+        display: grid;
+        grid-template-columns: minmax(0, 1.06fr) minmax(340px, 0.94fr);
+        min-height: 560px;
+        border: 1px solid var(--ink);
+        background: rgba(255, 253, 248, 0.48);
+        box-shadow: var(--shadow);
+      }
+
+      .source,
+      .transcript {
+        padding: 28px;
+      }
+
+      .source {
+        border-right: 1px solid var(--ink);
+      }
+
+      .source-heading,
+      .output-heading {
+        justify-content: space-between;
+        gap: 16px;
+      }
+
+      .section-label {
+        margin: 0;
+        font-size: 11px;
+        font-weight: 900;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      .section-index {
+        color: var(--coral);
+        font-size: 12px;
+        font-weight: 900;
+      }
+
+      .source-stage {
+        display: flex;
+        min-height: 306px;
+        margin: 25px 0 20px;
+        padding: 24px;
+        flex-direction: column;
+        justify-content: space-between;
+        border: 1px dashed rgba(23, 24, 23, 0.34);
+        background: rgba(242, 238, 230, 0.72);
+        transition: border-color 180ms ease, background-color 180ms ease;
+      }
+
+      .source-stage.dragging {
+        border-color: var(--teal);
+        background: rgba(15, 119, 112, 0.08);
+      }
+
+      .source-stage.has-file {
+        border-style: solid;
+        border-color: var(--teal);
+      }
+
+      .source-stage-copy {
+        max-width: 360px;
+      }
+
+      .source-stage-copy h2 {
+        margin-bottom: 10px;
+        font-family: Rockwell, "Avenir Next", serif;
+        font-size: 27px;
+        line-height: 1.05;
+      }
+
+      .source-stage-copy p {
+        margin-bottom: 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .wave {
+        display: flex;
+        height: 56px;
+        align-items: center;
+        gap: 4px;
+        overflow: hidden;
+      }
+
+      .wave i {
+        display: block;
+        width: 5px;
+        min-height: 7px;
+        background: var(--teal);
+        opacity: 0.45;
+        transform-origin: center;
+      }
+
+      .wave i:nth-child(1),
+      .wave i:nth-child(12),
+      .wave i:nth-child(21) {
+        height: 14px;
+      }
+
+      .wave i:nth-child(2),
+      .wave i:nth-child(10),
+      .wave i:nth-child(18),
+      .wave i:nth-child(24) {
+        height: 29px;
+      }
+
+      .wave i:nth-child(3),
+      .wave i:nth-child(8),
+      .wave i:nth-child(15),
+      .wave i:nth-child(19),
+      .wave i:nth-child(23) {
+        height: 45px;
+      }
+
+      .wave i:nth-child(4),
+      .wave i:nth-child(7),
+      .wave i:nth-child(14),
+      .wave i:nth-child(17),
+      .wave i:nth-child(22) {
+        height: 35px;
+      }
+
+      .recording .wave i {
+        animation: pulse 860ms ease-in-out infinite alternate;
+        opacity: 0.92;
+      }
+
+      .recording .wave i:nth-child(3n) {
+        animation-delay: -260ms;
+      }
+
+      .recording .wave i:nth-child(4n) {
+        animation-delay: -540ms;
+      }
+
+      @keyframes pulse {
+        from {
+          transform: scaleY(0.48);
+        }
+        to {
+          transform: scaleY(1.2);
+        }
+      }
+
+      .file-line {
+        display: flex;
+        min-height: 34px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .file-name {
+        overflow: hidden;
+        color: var(--ink);
+        font-weight: 800;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .control-row {
+        gap: 12px;
+        justify-content: space-between;
+      }
+
+      .record-button,
+      .transcribe-button {
+        display: inline-flex;
+        min-height: 48px;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        border: 1px solid var(--ink);
+        font-size: 13px;
+        font-weight: 900;
+        transition: transform 160ms ease, background-color 160ms ease, color 160ms ease;
+      }
+
+      .record-button {
+        min-width: 184px;
+        color: var(--white);
+        background: var(--ink);
+      }
+
+      .record-button:hover,
+      .transcribe-button:hover {
+        transform: translateY(-2px);
+      }
+
+      .record-button.recording {
+        color: var(--white);
+        background: var(--coral);
+        border-color: var(--coral);
+      }
+
+      .record-icon {
+        display: inline-block;
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: var(--coral);
+      }
+
+      .recording .record-icon {
+        border-radius: 1px;
+        background: var(--white);
+      }
+
+      .timer {
+        min-width: 57px;
+        color: var(--muted);
+        font-family: "Courier New", monospace;
+        font-size: 14px;
+        font-weight: 700;
+        text-align: right;
+      }
+
+      .transcript {
+        display: flex;
+        min-width: 0;
+        flex-direction: column;
+        background: var(--ink);
+        color: var(--white);
+      }
+
+      .transcript .section-label {
+        color: var(--white);
+      }
+
+      .transcript .section-index {
+        color: var(--yellow);
+      }
+
+      .output-body {
+        display: flex;
+        min-height: 306px;
+        margin: 25px 0 20px;
+        flex: 1;
+        flex-direction: column;
+        justify-content: space-between;
+        border-top: 1px solid rgba(255, 253, 248, 0.24);
+        border-bottom: 1px solid rgba(255, 253, 248, 0.24);
+      }
+
+      .transcript-text {
+        margin: 0;
+        padding: 25px 0;
+        color: rgba(255, 253, 248, 0.94);
+        font-family: Rockwell, "Avenir Next", serif;
+        font-size: 28px;
+        line-height: 1.2;
+        overflow-wrap: anywhere;
+        white-space: pre-wrap;
+      }
+
+      .transcript-text.empty {
+        color: rgba(255, 253, 248, 0.42);
+      }
+
+      .output-meta {
+        justify-content: space-between;
+        gap: 14px;
+        padding: 15px 0;
+        color: rgba(255, 253, 248, 0.52);
+        font-size: 11px;
+      }
+
+      .output-meta strong {
+        color: var(--yellow);
+      }
+
+      .button-row {
+        gap: 12px;
+      }
+
+      .transcribe-button {
+        width: 100%;
+        color: var(--ink);
+        background: var(--yellow);
+        border-color: var(--yellow);
+      }
+
+      .transcribe-button:hover {
+        background: #f0c967;
+      }
+
+      .arrow {
+        font-size: 18px;
+        line-height: 0;
+      }
+
+      .transcript-footer {
+        justify-content: space-between;
+        gap: 12px;
+        padding-top: 15px;
+        color: rgba(255, 253, 248, 0.48);
+        font-size: 11px;
+      }
+
+      .footer-state {
+        color: var(--yellow);
+      }
+
+      .settings {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 12px;
+        margin-top: 20px;
+      }
+
+      .field {
+        min-width: 0;
+      }
+
+      .field label {
+        display: block;
+        margin-bottom: 7px;
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 900;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      .field input,
+      .field select {
+        width: 100%;
+        height: 42px;
+        padding: 0 12px;
+        color: var(--ink);
+        background: var(--white);
+        border: 1px solid var(--line);
+        border-radius: 0;
+      }
+
+      .field input::placeholder {
+        color: #9b9d96;
+      }
+
+      .hint {
+        margin: 18px 0 0;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.45;
+      }
+
+      .error {
+        color: var(--coral);
+      }
+
+      @media (max-width: 820px) {
+        .shell {
+          width: min(100% - 30px, 620px);
+          padding-top: 18px;
+        }
+
+        .intro {
+          display: block;
+          padding: 52px 0 34px;
+        }
+
+        h1 {
+          font-size: 46px;
+        }
+
+        .intro-note {
+          max-width: 360px;
+          margin-top: 28px;
+        }
+
+        .workspace {
+          display: block;
+        }
+
+        .source {
+          border-right: 0;
+          border-bottom: 1px solid var(--ink);
+        }
+
+        .transcript {
+          min-height: 500px;
+        }
+      }
+
+      @media (max-width: 500px) {
+        .shell {
+          width: min(100% - 22px, 620px);
+          padding-bottom: 24px;
+        }
+
+        .intro {
+          padding-top: 43px;
+        }
+
+        h1 {
+          font-size: 39px;
+        }
+
+        .source,
+        .transcript {
+          padding: 21px;
+        }
+
+        .source-stage {
+          min-height: 270px;
+          padding: 18px;
+        }
+
+        .settings {
+          grid-template-columns: 1fr;
+        }
+
+        .control-row {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .record-button {
+          width: 100%;
+        }
+
+        .timer {
+          width: 100%;
+          text-align: left;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <div class="brand"><span class="brand-mark">D</span><span>Voice Lab</span></div>
+        <div class="status" aria-live="polite"><span class="status-dot" id="health-dot"></span><span id="health-label">Checking service</span></div>
+      </header>
+
+      <main>
+        <section class="intro" aria-labelledby="page-title">
+          <div>
+            <p class="kicker">OvozifyLabs / Whisper Small</p>
+            <h1 id="page-title">Say it.<br />See it.</h1>
+            <p class="intro-copy">A focused transcription bench for Uzbek, Russian, and English voice. Record a note or drop in an audio file, then send it through the local model.</p>
+          </div>
+          <div class="intro-note"><strong>Model ready when you are.</strong>The first request loads the model into memory. Short voice notes return fastest.</div>
+        </section>
+
+        <section class="workspace" aria-label="Speech to text playground">
+          <div class="source">
+            <div class="source-heading">
+              <h2 class="section-label">Audio source</h2>
+              <span class="section-index">01 / 02</span>
+            </div>
+
+            <div class="source-stage" id="drop-zone" tabindex="0" role="button" aria-label="Choose an audio file or drop one here">
+              <div class="source-stage-copy">
+                <h2>Bring a voice note.</h2>
+                <p id="source-help">Drop an audio file here, or record a clean WAV directly from this browser.</p>
+              </div>
+              <div class="wave" id="wave" aria-hidden="true">
+                <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+              </div>
+              <div class="file-line"><span class="file-name" id="file-name">No audio selected</span><span id="file-size">WAV recorder</span></div>
+              <audio id="audio-preview" controls hidden></audio>
+              <input id="file-input" type="file" accept="audio/*" hidden />
+            </div>
+
+            <div class="control-row">
+              <button class="record-button" id="record-button" type="button"><span class="record-icon" aria-hidden="true"></span><span id="record-label">Start recording</span></button>
+              <span class="timer" id="timer">00:00</span>
+            </div>
+
+            <div class="settings">
+              <div class="field">
+                <label for="language">Language</label>
+                <select id="language">
+                  <option value="auto">Auto detect</option>
+                  <option value="uz">Uzbek</option>
+                  <option value="ru">Russian</option>
+                  <option value="en">English</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="api-key">API key <span>(optional)</span></label>
+                <input id="api-key" type="password" autocomplete="off" placeholder="Only if configured" />
+              </div>
+            </div>
+            <p class="hint">Audio stays in this request and is not stored by the playground.</p>
+          </div>
+
+          <div class="transcript">
+            <div class="output-heading">
+              <h2 class="section-label">Transcript</h2>
+              <span class="section-index">02 / 02</span>
+            </div>
+            <div class="output-body">
+              <p class="transcript-text empty" id="transcript">Your words will land here.</p>
+              <div class="output-meta"><span id="duration">00.0 sec</span><span id="model-label">Model: waiting</span></div>
+            </div>
+            <div class="button-row"><button class="transcribe-button" id="transcribe-button" type="button" disabled><span>Transcribe audio</span><span class="arrow" aria-hidden="true">&#8594;</span></button></div>
+            <div class="transcript-footer"><span id="request-state">No request yet</span><span class="footer-state" id="footer-state">Idle</span></div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      const dropZone = document.getElementById("drop-zone");
+      const fileInput = document.getElementById("file-input");
+      const fileName = document.getElementById("file-name");
+      const fileSize = document.getElementById("file-size");
+      const sourceHelp = document.getElementById("source-help");
+      const audioPreview = document.getElementById("audio-preview");
+      const recordButton = document.getElementById("record-button");
+      const recordLabel = document.getElementById("record-label");
+      const timer = document.getElementById("timer");
+      const wave = document.getElementById("wave");
+      const transcribeButton = document.getElementById("transcribe-button");
+      const transcript = document.getElementById("transcript");
+      const duration = document.getElementById("duration");
+      const modelLabel = document.getElementById("model-label");
+      const requestState = document.getElementById("request-state");
+      const footerState = document.getElementById("footer-state");
+      const healthDot = document.getElementById("health-dot");
+      const healthLabel = document.getElementById("health-label");
+      const language = document.getElementById("language");
+      const apiKey = document.getElementById("api-key");
+
+      let selectedFile = null;
+      let previewUrl = null;
+      let mediaStream = null;
+      let audioContext = null;
+      let sourceNode = null;
+      let processorNode = null;
+      let recordingChunks = [];
+      let recordingStartedAt = 0;
+      let timerHandle = null;
+      let recording = false;
+
+      function formatTime(seconds) {
+        const minutes = Math.floor(seconds / 60).toString().padStart(2, "0");
+        const remainder = Math.floor(seconds % 60).toString().padStart(2, "0");
+        return `${minutes}:${remainder}`;
+      }
+
+      function formatBytes(bytes) {
+        if (bytes < 1024) return `${bytes} B`;
+        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+        return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+      }
+
+      function setFooterState(message, isError = false) {
+        footerState.textContent = message;
+        footerState.classList.toggle("error", isError);
+      }
+
+      function setSelectedFile(file) {
+        if (!file) return;
+        selectedFile = file;
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        previewUrl = URL.createObjectURL(file);
+        audioPreview.src = previewUrl;
+        audioPreview.hidden = false;
+        fileName.textContent = file.name || "recording.wav";
+        fileSize.textContent = formatBytes(file.size);
+        sourceHelp.textContent = "Audio is queued. You can replace it or send it to the model.";
+        dropZone.classList.add("has-file");
+        transcribeButton.disabled = false;
+        setFooterState("Audio queued");
+      }
+
+      function updateTimer() {
+        timer.textContent = formatTime((Date.now() - recordingStartedAt) / 1000);
+      }
+
+      function writeString(view, offset, value) {
+        for (let index = 0; index < value.length; index += 1) {
+          view.setUint8(offset + index, value.charCodeAt(index));
+        }
+      }
+
+      function encodeWav(chunks, sampleRate) {
+        const sampleCount = chunks.reduce((total, chunk) => total + chunk.length, 0);
+        const buffer = new ArrayBuffer(44 + sampleCount * 2);
+        const view = new DataView(buffer);
+        writeString(view, 0, "RIFF");
+        view.setUint32(4, 36 + sampleCount * 2, true);
+        writeString(view, 8, "WAVE");
+        writeString(view, 12, "fmt ");
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true);
+        view.setUint16(22, 1, true);
+        view.setUint32(24, sampleRate, true);
+        view.setUint32(28, sampleRate * 2, true);
+        view.setUint16(32, 2, true);
+        view.setUint16(34, 16, true);
+        writeString(view, 36, "data");
+        view.setUint32(40, sampleCount * 2, true);
+
+        let offset = 44;
+        for (const chunk of chunks) {
+          for (const sample of chunk) {
+            const clipped = Math.max(-1, Math.min(1, sample));
+            view.setInt16(offset, clipped < 0 ? clipped * 32768 : clipped * 32767, true);
+            offset += 2;
+          }
+        }
+        return buffer;
+      }
+
+      async function startRecording() {
+        try {
+          mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          audioContext = new AudioContext();
+          sourceNode = audioContext.createMediaStreamSource(mediaStream);
+          processorNode = audioContext.createScriptProcessor(4096, 1, 1);
+          recordingChunks = [];
+          processorNode.onaudioprocess = (event) => {
+            if (recording) recordingChunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
+          };
+          sourceNode.connect(processorNode);
+          const mutedOutput = audioContext.createGain();
+          mutedOutput.gain.value = 0;
+          processorNode.connect(mutedOutput);
+          mutedOutput.connect(audioContext.destination);
+          recording = true;
+          recordingStartedAt = Date.now();
+          timerHandle = window.setInterval(updateTimer, 200);
+          wave.classList.add("recording");
+          recordButton.classList.add("recording");
+          recordLabel.textContent = "Stop recording";
+          transcribeButton.disabled = true;
+          setFooterState("Listening");
+        } catch (error) {
+          setFooterState(error.message || "Microphone permission is needed", true);
+        }
+      }
+
+      async function stopRecording() {
+        recording = false;
+        if (timerHandle) window.clearInterval(timerHandle);
+        timerHandle = null;
+        const sampleRate = audioContext ? audioContext.sampleRate : 44100;
+        if (processorNode) processorNode.disconnect();
+        if (sourceNode) sourceNode.disconnect();
+        if (mediaStream) mediaStream.getTracks().forEach((track) => track.stop());
+        if (audioContext) await audioContext.close();
+        const wav = new Blob([encodeWav(recordingChunks, sampleRate)], { type: "audio/wav" });
+        setSelectedFile(new File([wav], `recording-${Date.now()}.wav`, { type: "audio/wav" }));
+        wave.classList.remove("recording");
+        recordButton.classList.remove("recording");
+        recordLabel.textContent = "Start recording";
+        timer.textContent = formatTime((Date.now() - recordingStartedAt) / 1000);
+        mediaStream = null;
+        audioContext = null;
+        sourceNode = null;
+        processorNode = null;
+        recordingChunks = [];
+      }
+
+      recordButton.addEventListener("click", () => {
+        if (recording) {
+          stopRecording();
+        } else {
+          startRecording();
+        }
+      });
+
+      fileInput.addEventListener("change", () => setSelectedFile(fileInput.files[0]));
+      dropZone.addEventListener("click", (event) => {
+        if (event.target !== audioPreview) fileInput.click();
+      });
+      dropZone.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          fileInput.click();
+        }
+      });
+      ["dragenter", "dragover"].forEach((eventName) => dropZone.addEventListener(eventName, (event) => {
+        event.preventDefault();
+        dropZone.classList.add("dragging");
+      }));
+      ["dragleave", "drop"].forEach((eventName) => dropZone.addEventListener(eventName, (event) => {
+        event.preventDefault();
+        dropZone.classList.remove("dragging");
+      }));
+      dropZone.addEventListener("drop", (event) => setSelectedFile(event.dataTransfer.files[0]));
+
+      transcribeButton.addEventListener("click", async () => {
+        if (!selectedFile) return;
+        const form = new FormData();
+        form.append("file", selectedFile, selectedFile.name || "audio.wav");
+        form.append("language", language.value);
+        const headers = apiKey.value.trim() ? { "X-API-Key": apiKey.value.trim() } : {};
+        transcribeButton.disabled = true;
+        requestState.textContent = "Sending audio to Whisper...";
+        setFooterState("Working");
+        transcript.classList.add("empty");
+        transcript.textContent = "Transcribing...";
+        try {
+          const response = await fetch("/transcribe", { method: "POST", headers, body: form });
+          const payload = await response.json();
+          if (!response.ok) throw new Error(payload.detail || "Transcription failed");
+          transcript.classList.remove("empty");
+          transcript.textContent = payload.text || "No speech detected.";
+          duration.textContent = `${Number(payload.duration_seconds).toFixed(1)} sec`;
+          modelLabel.textContent = `Model: ${payload.model}`;
+          requestState.textContent = "Request complete";
+          setFooterState("Done");
+        } catch (error) {
+          transcript.classList.add("empty");
+          transcript.textContent = error.message || "Transcription failed.";
+          requestState.textContent = "Request failed";
+          setFooterState("Error", true);
+        } finally {
+          transcribeButton.disabled = false;
+        }
+      });
+
+      async function checkHealth() {
+        try {
+          const response = await fetch("/health");
+          const payload = await response.json();
+          if (!response.ok) throw new Error("Health check failed");
+          healthDot.classList.add("ready");
+          healthLabel.textContent = payload.model_loaded ? "Model loaded" : "Service online";
+          modelLabel.textContent = `Model: ${payload.model}`;
+        } catch (_error) {
+          healthLabel.textContent = "Service unavailable";
+          setFooterState("Offline", true);
+        }
+      }
+
+      checkHealth();
+    </script>
+  </body>
+</html>
