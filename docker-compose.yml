@@ -1,0 +1,19 @@
+services:
+  stt:
+    build: .
+    env_file: .env
+    environment:
+      MODEL_PATH: /data/models/whisper-small-uz-v1
+      HF_HOME: /data/huggingface
+      PORT: 8090
+    ports:
+      - "8090:8090"
+    volumes:
+      - ./models:/data/models
+      - ./huggingface-cache:/data/huggingface
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8090/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
