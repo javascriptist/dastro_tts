@@ -55,7 +55,7 @@ STT_API_KEY=generate-a-long-random-value
 CORS_ORIGINS=https://your-frontend.example
 MAX_AUDIO_MB=50
 MAX_AUDIO_SECONDS=300
-MAX_NEW_TOKENS=64
+MAX_NEW_TOKENS=256
 TORCH_NUM_THREADS=4
 CPU_QUANTIZE=true
 TORCH_QUANTIZED_ENGINE=fbgemm
@@ -136,7 +136,7 @@ OpenAI-compatible upload shape for clients that only need `{ "text": "..." }`. I
 | `HF_HOME` | `./models/cache` | Hugging Face cache directory |
 | `DEVICE` | `auto` | `auto`, `cpu`, `cuda`, or `mps` |
 | `PRELOAD_MODEL` | `true` | Load the model in a background thread at startup |
-| `MAX_NEW_TOKENS` | `64` | Output limit for short recordings; values above 64 are capped for latency |
+| `MAX_NEW_TOKENS` | `256` | Maximum generated transcript tokens; values below 256 are raised to avoid clipping normal recordings |
 | `TORCH_NUM_THREADS` | `4` | CPU thread limit; tune to the replica's vCPU count |
 | `CPU_QUANTIZE` | `true` | Apply dynamic int8 quantization on CPU |
 | `TORCH_QUANTIZED_ENGINE` | `fbgemm` | Preferred CPU quantization backend; falls back to an installed backend |
