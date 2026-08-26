@@ -1,0 +1,39 @@
+# GPU image for Navoiy TTS. Deploy this as its OWN service, separate from the
+# CPU-only STT image (Dockerfile) — Navoiy TTS needs CUDA, the CosyVoice engine
+# cloned from GitHub, and a ~0.5B parameter base model, none of which fit the
+# lightweight CPU deployment the STT service is built around.
+FROM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    DEBIAN_FRONTEND=noninteractive \
+    TTS_ENABLED=true \
+    TTS_MODEL_PATH=/data/models/navoiy-tts \
+    TTS_COSYVOICE_DIR=/data/models/CosyVoice \
+    TTS_BASE_MODEL_DIR=/data/models/CosyVoice/pretrained_models/CosyVoice2-0.5B \
+    HF_HOME=/data/huggingface \
+    PORT=8091
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3.10 python3-pip python3-venv git ffmpeg libsndfile1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3.10 /usr/bin/python \
+    && ln -sf /usr/bin/python3.10 /usr/bin/python3
+
+WORKDIR /app
+COPY requirements-tts.txt ./
+RUN pip install --no-cache-dir -r requirements-tts.txt
+
+COPY app.py setup_tts_model.py .env.example ./
+COPY static ./static
+RUN mkdir -p /data/models /data/huggingface
+
+# Clones CosyVoice and downloads the base model + Navoiy TTS checkpoint into the
+# image at build time so a fresh container has no first-request download delay.
+# This makes the image large (several GB) and the build slow — that is expected.
+RUN python setup_tts_model.py \
+    && pip install --no-cache-dir -r /data/models/CosyVoice/requirements.txt
+
+EXPOSE 8091
+CMD ["sh", "-c", "exec uvicorn app:app --host 0.0.0.0 --port ${PORT:-8091} --log-level ${LOG_LEVEL:-info}"]

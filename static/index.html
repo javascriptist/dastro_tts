@@ -544,6 +544,56 @@
         color: var(--coral);
       }
 
+      .tts-intro {
+        padding-top: 54px;
+        border-top: 1px solid var(--line);
+      }
+
+      .tts-heading {
+        font-size: 44px;
+      }
+
+      .tts-textarea {
+        width: 100%;
+        min-height: 150px;
+        padding: 0;
+        color: var(--ink);
+        background: transparent;
+        border: 0;
+        resize: vertical;
+        font-family: Rockwell, "Avenir Next", serif;
+        font-size: 22px;
+        line-height: 1.35;
+      }
+
+      .tts-textarea::placeholder {
+        color: #9b9d96;
+      }
+
+      .tts-textarea:focus {
+        outline: none;
+      }
+
+      .tts-clear-button {
+        padding: 0;
+        color: var(--coral);
+        background: none;
+        border: 0;
+        font-size: 12px;
+        font-weight: 800;
+        text-decoration: underline;
+      }
+
+      .tts-output-body {
+        justify-content: center;
+        align-items: stretch;
+        gap: 16px;
+      }
+
+      .tts-output-body audio {
+        width: 100%;
+      }
+
       @media (max-width: 820px) {
         .shell {
           width: min(100% - 30px, 620px);
@@ -618,6 +668,10 @@
         .timer {
           width: 100%;
           text-align: left;
+        }
+
+        .tts-heading {
+          font-size: 32px;
         }
       }
     </style>
@@ -695,6 +749,74 @@
             <div class="transcript-footer"><span id="request-state">No request yet</span><span class="footer-state" id="footer-state">Idle</span></div>
           </div>
         </section>
+
+        <section class="intro tts-intro" aria-labelledby="tts-title">
+          <div>
+            <p class="kicker">aisha-org / Navoiy TTS</p>
+            <h1 id="tts-title" class="tts-heading">Now make it speak.</h1>
+            <p class="intro-copy">Turn Uzbek text into a voice clip with Navoiy TTS. Pick an emotion, optionally clone a reference voice, and send it through the model.</p>
+          </div>
+          <div class="intro-note"><strong>Deployed as its own service.</strong>Navoiy TTS needs a GPU and runs separately from the STT model above. If it reports "not enabled," the operator hasn't turned this deployment on yet.</div>
+        </section>
+
+        <section class="workspace" aria-label="Text to speech playground">
+          <div class="source">
+            <div class="source-heading">
+              <h2 class="section-label">Script</h2>
+              <span class="section-index">01 / 02</span>
+            </div>
+
+            <div class="source-stage">
+              <textarea id="tts-text" class="tts-textarea" placeholder="Yozing... masalan: Assalomu alaykum, bu ovoz sinovi." maxlength="500" rows="6"></textarea>
+            </div>
+
+            <div class="control-row">
+              <button class="record-button" id="tts-record-button" type="button"><span class="record-icon" aria-hidden="true"></span><span id="tts-record-label">Record reference voice</span></button>
+              <span class="timer" id="tts-timer">00:00</span>
+            </div>
+            <div class="file-line">
+              <span class="file-name" id="tts-reference-name">Default reference voice</span>
+              <button type="button" class="tts-clear-button" id="tts-reference-clear" hidden>Clear</button>
+            </div>
+
+            <div class="settings">
+              <div class="field">
+                <label for="tts-emotion">Emotion</label>
+                <select id="tts-emotion">
+                  <option value="calm">Calm</option>
+                  <option value="happy">Happy</option>
+                  <option value="sad">Sad</option>
+                  <option value="angry">Angry</option>
+                  <option value="nervous">Nervous</option>
+                  <option value="surprised">Surprised</option>
+                  <option value="whisper">Whisper</option>
+                  <option value="warm">Warm</option>
+                  <option value="tired">Tired</option>
+                  <option value="sarcastic">Sarcastic</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="tts-reference-input">Reference clip <span>(optional)</span></label>
+                <input id="tts-reference-input" type="file" accept="audio/*" />
+              </div>
+            </div>
+            <p class="hint">Text and any reference clip stay in this request and are not stored by the playground.</p>
+          </div>
+
+          <div class="transcript">
+            <div class="output-heading">
+              <h2 class="section-label">Speech</h2>
+              <span class="section-index">02 / 02</span>
+            </div>
+            <div class="output-body tts-output-body">
+              <p class="transcript-text empty" id="tts-placeholder">Your speech will land here.</p>
+              <audio id="tts-audio" controls hidden></audio>
+              <div class="output-meta"><span id="tts-emotion-label">Emotion: calm</span><span id="tts-model-label">Model: waiting</span></div>
+            </div>
+            <div class="button-row"><button class="transcribe-button" id="tts-synthesize-button" type="button" disabled><span>Synthesize speech</span><span class="arrow" aria-hidden="true">&#8594;</span></button></div>
+            <div class="transcript-footer"><span id="tts-request-state">No request yet</span><span class="footer-state" id="tts-footer-state">Idle</span></div>
+          </div>
+        </section>
       </main>
     </div>
 
@@ -720,18 +842,29 @@
       const language = document.getElementById("language");
       const apiKey = document.getElementById("api-key");
 
+      const ttsText = document.getElementById("tts-text");
+      const ttsEmotion = document.getElementById("tts-emotion");
+      const ttsReferenceInput = document.getElementById("tts-reference-input");
+      const ttsReferenceName = document.getElementById("tts-reference-name");
+      const ttsReferenceClear = document.getElementById("tts-reference-clear");
+      const ttsRecordButton = document.getElementById("tts-record-button");
+      const ttsRecordLabel = document.getElementById("tts-record-label");
+      const ttsTimer = document.getElementById("tts-timer");
+      const ttsSynthesizeButton = document.getElementById("tts-synthesize-button");
+      const ttsPlaceholder = document.getElementById("tts-placeholder");
+      const ttsAudio = document.getElementById("tts-audio");
+      const ttsEmotionLabel = document.getElementById("tts-emotion-label");
+      const ttsModelLabel = document.getElementById("tts-model-label");
+      const ttsRequestState = document.getElementById("tts-request-state");
+      const ttsFooterState = document.getElementById("tts-footer-state");
+
       let selectedFile = null;
       let previewUrl = null;
-      let mediaStream = null;
-      let audioContext = null;
-      let sourceNode = null;
-      let processorNode = null;
-      let recordingChunks = [];
-      let recordingStartedAt = 0;
-      let timerHandle = null;
-      let recording = false;
       let modelReady = false;
       let healthPollHandle = null;
+      let ttsReferenceFile = null;
+      let ttsAudioUrl = null;
+      let ttsReady = false;
 
       function formatTime(seconds) {
         const minutes = Math.floor(seconds / 60).toString().padStart(2, "0");
@@ -750,6 +883,17 @@
         footerState.classList.toggle("error", isError);
       }
 
+      function setTtsFooterState(message, isError = false) {
+        ttsFooterState.textContent = message;
+        ttsFooterState.classList.toggle("error", isError);
+      }
+
+      function setTtsReferenceFile(file) {
+        ttsReferenceFile = file;
+        ttsReferenceName.textContent = file ? file.name || "reference.wav" : "Default reference voice";
+        ttsReferenceClear.hidden = !file;
+      }
+
       function setSelectedFile(file) {
         if (!file) return;
         selectedFile = file;
@@ -763,10 +907,6 @@
         dropZone.classList.add("has-file");
         transcribeButton.disabled = !modelReady;
         setFooterState(modelReady ? "Audio queued" : "Model loading");
-      }
-
-      function updateTimer() {
-        timer.textContent = formatTime((Date.now() - recordingStartedAt) / 1000);
       }
 
       function writeString(view, offset, value) {
@@ -804,62 +944,115 @@
         return buffer;
       }
 
-      async function startRecording() {
-        try {
-          mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          audioContext = new AudioContext();
-          sourceNode = audioContext.createMediaStreamSource(mediaStream);
-          processorNode = audioContext.createScriptProcessor(4096, 1, 1);
-          recordingChunks = [];
-          processorNode.onaudioprocess = (event) => {
-            if (recording) recordingChunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
-          };
-          sourceNode.connect(processorNode);
-          const mutedOutput = audioContext.createGain();
-          mutedOutput.gain.value = 0;
-          processorNode.connect(mutedOutput);
-          mutedOutput.connect(audioContext.destination);
-          recording = true;
-          recordingStartedAt = Date.now();
-          timerHandle = window.setInterval(updateTimer, 200);
-          wave.classList.add("recording");
-          recordButton.classList.add("recording");
-          recordLabel.textContent = "Stop recording";
+      function createRecorder({ button, label, timerEl, wave: waveEl, onStart, onCapture }) {
+        let stream = null;
+        let context = null;
+        let source = null;
+        let processor = null;
+        let chunks = [];
+        let startedAt = 0;
+        let handle = null;
+        let active = false;
+
+        function tick() {
+          timerEl.textContent = formatTime((Date.now() - startedAt) / 1000);
+        }
+
+        async function start() {
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            context = new AudioContext();
+            source = context.createMediaStreamSource(stream);
+            processor = context.createScriptProcessor(4096, 1, 1);
+            chunks = [];
+            processor.onaudioprocess = (event) => {
+              if (active) chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
+            };
+            source.connect(processor);
+            const mutedOutput = context.createGain();
+            mutedOutput.gain.value = 0;
+            processor.connect(mutedOutput);
+            mutedOutput.connect(context.destination);
+            active = true;
+            startedAt = Date.now();
+            handle = window.setInterval(tick, 200);
+            if (waveEl) waveEl.classList.add("recording");
+            button.classList.add("recording");
+            label.textContent = "Stop recording";
+            if (onStart) onStart();
+          } catch (error) {
+            if (onCapture) onCapture(null, error.message || "Microphone permission is needed");
+          }
+        }
+
+        async function stop() {
+          active = false;
+          if (handle) window.clearInterval(handle);
+          handle = null;
+          const sampleRate = context ? context.sampleRate : 44100;
+          if (processor) processor.disconnect();
+          if (source) source.disconnect();
+          if (stream) stream.getTracks().forEach((track) => track.stop());
+          if (context) await context.close();
+          const capturedChunks = chunks;
+          if (waveEl) waveEl.classList.remove("recording");
+          button.classList.remove("recording");
+          label.textContent = "Start recording";
+          timerEl.textContent = formatTime((Date.now() - startedAt) / 1000);
+          stream = null;
+          context = null;
+          source = null;
+          processor = null;
+          chunks = [];
+          if (capturedChunks.length && onCapture) {
+            const wav = new Blob([encodeWav(capturedChunks, sampleRate)], { type: "audio/wav" });
+            onCapture(new File([wav], `recording-${Date.now()}.wav`, { type: "audio/wav" }), null);
+          }
+        }
+
+        button.addEventListener("click", () => {
+          if (active) stop();
+          else start();
+        });
+
+        return {
+          get recording() {
+            return active;
+          },
+        };
+      }
+
+      const sttRecorder = createRecorder({
+        button: recordButton,
+        label: recordLabel,
+        timerEl: timer,
+        wave,
+        onStart: () => {
           transcribeButton.disabled = true;
           setFooterState("Listening");
-        } catch (error) {
-          setFooterState(error.message || "Microphone permission is needed", true);
-        }
-      }
+        },
+        onCapture: (file, error) => {
+          if (error) {
+            setFooterState(error, true);
+            return;
+          }
+          setSelectedFile(file);
+        },
+      });
 
-      async function stopRecording() {
-        recording = false;
-        if (timerHandle) window.clearInterval(timerHandle);
-        timerHandle = null;
-        const sampleRate = audioContext ? audioContext.sampleRate : 44100;
-        if (processorNode) processorNode.disconnect();
-        if (sourceNode) sourceNode.disconnect();
-        if (mediaStream) mediaStream.getTracks().forEach((track) => track.stop());
-        if (audioContext) await audioContext.close();
-        const wav = new Blob([encodeWav(recordingChunks, sampleRate)], { type: "audio/wav" });
-        setSelectedFile(new File([wav], `recording-${Date.now()}.wav`, { type: "audio/wav" }));
-        wave.classList.remove("recording");
-        recordButton.classList.remove("recording");
-        recordLabel.textContent = "Start recording";
-        timer.textContent = formatTime((Date.now() - recordingStartedAt) / 1000);
-        mediaStream = null;
-        audioContext = null;
-        sourceNode = null;
-        processorNode = null;
-        recordingChunks = [];
-      }
-
-      recordButton.addEventListener("click", () => {
-        if (recording) {
-          stopRecording();
-        } else {
-          startRecording();
-        }
+      createRecorder({
+        button: ttsRecordButton,
+        label: ttsRecordLabel,
+        timerEl: ttsTimer,
+        onStart: () => setTtsFooterState("Listening"),
+        onCapture: (file, error) => {
+          if (error) {
+            setTtsFooterState(error, true);
+            return;
+          }
+          setTtsReferenceFile(file);
+          setTtsFooterState(ttsReady ? "Reference queued" : "Model loading");
+        },
       });
 
       fileInput.addEventListener("change", () => setSelectedFile(fileInput.files[0]));
@@ -921,13 +1114,34 @@
         modelLabel.textContent = `Model: ${payload.model}`;
         if (state === "ready") {
           healthLabel.textContent = "Model loaded";
-          if (!recording) setFooterState(selectedFile ? "Audio queued" : "Idle");
+          if (!sttRecorder.recording) setFooterState(selectedFile ? "Audio queued" : "Idle");
         } else if (state === "error") {
           healthLabel.textContent = "Model error";
-          if (!recording) setFooterState("Model error", true);
+          if (!sttRecorder.recording) setFooterState("Model error", true);
         } else {
           healthLabel.textContent = "Loading model";
-          if (!recording) setFooterState("Model loading");
+          if (!sttRecorder.recording) setFooterState("Model loading");
+        }
+      }
+
+      function updateTtsState(payload) {
+        const enabled = Boolean(payload.tts_enabled);
+        const state = payload.tts_model_state || (enabled ? "loading" : "disabled");
+        ttsReady = enabled && state === "ready";
+        ttsModelLabel.textContent = `Model: ${payload.tts_model || "waiting"}`;
+        ttsSynthesizeButton.disabled = !ttsText.value.trim() || !ttsReady;
+        if (!enabled) {
+          ttsSynthesizeButton.title = "TTS is not enabled on this deployment";
+          return;
+        }
+        ttsSynthesizeButton.title = "";
+        if (ttsRecordButton.classList.contains("recording")) return;
+        if (state === "ready") {
+          setTtsFooterState(ttsText.value.trim() ? "Ready" : "Idle");
+        } else if (state === "error") {
+          setTtsFooterState(payload.tts_model_error || "Model error", true);
+        } else {
+          setTtsFooterState("Loading assets");
         }
       }
 
@@ -937,17 +1151,73 @@
           const payload = await response.json();
           if (!response.ok) throw new Error("Health check failed");
           updateModelState(payload);
+          updateTtsState(payload);
           if (healthPollHandle) window.clearTimeout(healthPollHandle);
-          if (!modelReady) healthPollHandle = window.setTimeout(checkHealth, 5000);
+          if (!modelReady || !ttsReady) healthPollHandle = window.setTimeout(checkHealth, 5000);
         } catch (_error) {
           modelReady = false;
+          ttsReady = false;
           transcribeButton.disabled = true;
+          ttsSynthesizeButton.disabled = true;
           healthDot.classList.remove("ready");
           healthLabel.textContent = "Service unavailable";
           setFooterState("Offline", true);
+          setTtsFooterState("Offline", true);
           healthPollHandle = window.setTimeout(checkHealth, 5000);
         }
       }
+
+      ttsReferenceInput.addEventListener("change", () => {
+        if (ttsReferenceInput.files[0]) setTtsReferenceFile(ttsReferenceInput.files[0]);
+      });
+
+      ttsReferenceClear.addEventListener("click", () => {
+        ttsReferenceInput.value = "";
+        setTtsReferenceFile(null);
+      });
+
+      ttsText.addEventListener("input", () => {
+        ttsSynthesizeButton.disabled = !ttsText.value.trim() || !ttsReady;
+      });
+
+      ttsEmotion.addEventListener("change", () => {
+        ttsEmotionLabel.textContent = `Emotion: ${ttsEmotion.value}`;
+      });
+
+      ttsSynthesizeButton.addEventListener("click", async () => {
+        const text = ttsText.value.trim();
+        if (!text) return;
+        const form = new FormData();
+        form.append("text", text);
+        form.append("emotion", ttsEmotion.value);
+        if (ttsReferenceFile) form.append("reference", ttsReferenceFile, ttsReferenceFile.name || "reference.wav");
+        const headers = apiKey.value.trim() ? { "X-API-Key": apiKey.value.trim() } : {};
+        ttsSynthesizeButton.disabled = true;
+        ttsRequestState.textContent = "Sending text to Navoiy TTS...";
+        setTtsFooterState("Working");
+        try {
+          const response = await fetch("/synthesize", { method: "POST", headers, body: form });
+          if (!response.ok) {
+            const payload = await response.json().catch(() => ({}));
+            throw new Error(payload.detail || "Speech synthesis failed");
+          }
+          const blob = await response.blob();
+          if (ttsAudioUrl) URL.revokeObjectURL(ttsAudioUrl);
+          ttsAudioUrl = URL.createObjectURL(blob);
+          ttsAudio.src = ttsAudioUrl;
+          ttsAudio.hidden = false;
+          ttsPlaceholder.hidden = true;
+          ttsEmotionLabel.textContent = `Emotion: ${ttsEmotion.value}`;
+          ttsRequestState.textContent = "Request complete";
+          setTtsFooterState("Done");
+          ttsAudio.play().catch(() => {});
+        } catch (error) {
+          ttsRequestState.textContent = "Request failed";
+          setTtsFooterState(error.message || "Speech synthesis failed", true);
+        } finally {
+          ttsSynthesizeButton.disabled = !ttsText.value.trim() || !ttsReady;
+        }
+      });
 
       checkHealth();
     </script>

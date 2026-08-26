@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import wave
@@ -16,7 +17,7 @@ import numpy as np
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
@@ -34,6 +35,39 @@ SHORT_AUDIO_SECONDS = 30.0
 ALLOWED_LANGUAGES = {"auto", "uz", "ru", "en"}
 SAMPLE_RATE = 16_000
 STARTED_AT = time.monotonic()
+
+# Navoiy TTS (https://aisha.group/en/blog/navoiy-tts-open-source-uzbek-text-to-speech) is a
+# CosyVoice2-0.5B fine-tune for Uzbek from aisha-org/navoiy-tts on Hugging Face. Unlike the
+# Whisper STT model above, it needs CUDA and the upstream CosyVoice engine cloned from GitHub,
+# so it cannot share the CPU-only STT deployment. Run setup_tts_model.py (see README) and set
+# TTS_ENABLED=true to turn it on; it stays off by default.
+TTS_ENABLED = os.getenv("TTS_ENABLED", "false").lower() not in {"0", "false", "no", "off"}
+TTS_MODEL_ID = os.getenv("TTS_MODEL_ID", "aisha-org/navoiy-tts")
+TTS_MODEL_PATH = Path(os.getenv("TTS_MODEL_PATH", str(BASE_DIR / "models" / "navoiy-tts")))
+TTS_COSYVOICE_DIR = Path(os.getenv("TTS_COSYVOICE_DIR", str(BASE_DIR / "models" / "CosyVoice")))
+TTS_BASE_MODEL_DIR = Path(
+    os.getenv("TTS_BASE_MODEL_DIR", str(TTS_COSYVOICE_DIR / "pretrained_models" / "CosyVoice2-0.5B"))
+)
+TTS_CHECKPOINT_PATH = Path(os.getenv("TTS_CHECKPOINT_PATH", str(TTS_MODEL_PATH / "emotion_600h_joint.pt")))
+TTS_REFERENCE_PATH = Path(os.getenv("TTS_REFERENCE_PATH", str(TTS_MODEL_PATH / "reference.wav")))
+TTS_INFERENCE_SCRIPT = Path(os.getenv("TTS_INFERENCE_SCRIPT", str(TTS_MODEL_PATH / "inference.py")))
+TTS_PYTHON_BIN = os.getenv("TTS_PYTHON_BIN", sys.executable)
+TTS_DEFAULT_EMOTION = os.getenv("TTS_DEFAULT_EMOTION", "calm")
+TTS_MAX_TEXT_CHARS = int(os.getenv("TTS_MAX_TEXT_CHARS", "500"))
+TTS_INFERENCE_TIMEOUT_SECONDS = float(os.getenv("TTS_INFERENCE_TIMEOUT_SECONDS", "180"))
+TTS_SAMPLE_RATE = 24_000
+ALLOWED_EMOTIONS = {
+    "calm",
+    "happy",
+    "sad",
+    "angry",
+    "nervous",
+    "surprised",
+    "whisper",
+    "warm",
+    "tired",
+    "sarcastic",
+}
 
 logging.basicConfig(
     level=getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO),
@@ -139,6 +173,16 @@ def decode_audio(payload: bytes) -> np.ndarray:
     if audio.size / SAMPLE_RATE > MAX_AUDIO_SECONDS:
         raise ValueError(f"Audio must be {MAX_AUDIO_SECONDS:g} seconds or shorter")
     return audio
+
+
+def _write_wav(path: Path, audio: np.ndarray, sample_rate: int) -> None:
+    samples = np.clip(audio, -1.0, 1.0)
+    pcm = (samples * 32767).astype(np.int16)
+    with wave.open(str(path), "wb") as sink:
+        sink.setnchannels(1)
+        sink.setsampwidth(2)
+        sink.setframerate(sample_rate)
+        sink.writeframes(pcm.tobytes())
 
 
 class TranscriptionResponse(BaseModel):
@@ -375,8 +419,152 @@ class WhisperRuntime:
         logger.info("model_preload_scheduled model_id=%s", MODEL_ID)
 
 
+class NavoiyTTSRuntime:
+    """Wraps the Navoiy TTS CLI (upstream `inference.py`) as a subprocess per request.
+
+    The upstream project only documents a CLI invocation, not a stable importable Python API,
+    so this shells out to it rather than guessing internal module/class names. Because the
+    checkpoint (~0.5B params) is reloaded onto the GPU on every call, each request is slow;
+    switch this class to holding an in-process model instead once the upstream Python API is
+    confirmed against the version actually installed.
+    """
+
+    def __init__(self) -> None:
+        self._state = "disabled" if not TTS_ENABLED else "unloaded"
+        self._last_error: str | None = None
+        self._check_lock = threading.Lock()
+        self._inference_lock = threading.Lock()
+
+    @property
+    def state(self) -> str:
+        return self._state
+
+    def status(self) -> dict[str, Any]:
+        return {
+            "tts_enabled": TTS_ENABLED,
+            "tts_model": TTS_MODEL_ID,
+            "tts_model_state": self._state,
+            "tts_model_error": self._last_error,
+            "tts_reference_configured": TTS_REFERENCE_PATH.is_file(),
+        }
+
+    def _verify_assets(self) -> None:
+        required = {
+            "TTS_COSYVOICE_DIR": TTS_COSYVOICE_DIR,
+            "TTS_BASE_MODEL_DIR": TTS_BASE_MODEL_DIR,
+            "TTS_CHECKPOINT_PATH": TTS_CHECKPOINT_PATH,
+            "TTS_INFERENCE_SCRIPT": TTS_INFERENCE_SCRIPT,
+        }
+        missing = [f"{name}={path}" for name, path in required.items() if not path.exists()]
+        if missing:
+            raise RuntimeError(
+                "Missing Navoiy TTS assets: "
+                + ", ".join(missing)
+                + ". Run setup_tts_model.py and install CosyVoice's requirements, or see README."
+            )
+        if not TTS_REFERENCE_PATH.is_file():
+            logger.warning(
+                "tts_reference_missing path=%s; every /synthesize call must upload a reference clip",
+                TTS_REFERENCE_PATH,
+            )
+
+    def load(self) -> None:
+        if not TTS_ENABLED:
+            raise RuntimeError("TTS is disabled on this deployment; set TTS_ENABLED=true after setup")
+        if self._state == "ready":
+            return
+        if not self._check_lock.acquire(blocking=False):
+            return
+        try:
+            self._state = "loading"
+            self._last_error = None
+            self._verify_assets()
+            self._state = "ready"
+            logger.info("tts_assets_verified model=%s checkpoint=%s", TTS_MODEL_ID, TTS_CHECKPOINT_PATH)
+        except Exception as error:
+            self._state = "error"
+            self._last_error = f"{type(error).__name__}: {error}"[:500]
+            logger.exception("tts_assets_check_failed")
+            raise
+        finally:
+            self._check_lock.release()
+
+    def start_preload(self) -> None:
+        if not TTS_ENABLED:
+            logger.info("tts_disabled")
+            return
+
+        def preload() -> None:
+            try:
+                self.load()
+            except Exception:
+                logger.error("tts_asset_check_failed; inspect /health and service logs")
+
+        threading.Thread(target=preload, name="tts-asset-check", daemon=True).start()
+        logger.info("tts_asset_check_scheduled model=%s", TTS_MODEL_ID)
+
+    def synthesize(self, text: str, emotion: str, reference_path: Path) -> bytes:
+        self.load()
+        if not self._inference_lock.acquire(blocking=False):
+            raise RuntimeError("Another synthesis request is already running; retry shortly")
+        try:
+            with tempfile.TemporaryDirectory(prefix="navoiy-tts-out-") as tmp_dir:
+                command = [
+                    TTS_PYTHON_BIN,
+                    str(TTS_INFERENCE_SCRIPT),
+                    "--cosyvoice-dir",
+                    str(TTS_COSYVOICE_DIR),
+                    "--base-model-dir",
+                    str(TTS_BASE_MODEL_DIR),
+                    "--checkpoint",
+                    str(TTS_CHECKPOINT_PATH),
+                    "--reference",
+                    str(reference_path),
+                    "--text",
+                    text,
+                    "--emotion",
+                    emotion,
+                ]
+                logger.info("tts_inference_started emotion=%s characters=%d", emotion, len(text))
+                started_at = time.perf_counter()
+                try:
+                    result = subprocess.run(
+                        command,
+                        cwd=tmp_dir,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        timeout=TTS_INFERENCE_TIMEOUT_SECONDS,
+                        check=False,
+                    )
+                except subprocess.TimeoutExpired as error:
+                    raise RuntimeError(
+                        f"Navoiy TTS did not finish within {TTS_INFERENCE_TIMEOUT_SECONDS:g}s"
+                    ) from error
+
+                # The documented CLI doesn't take an --output flag, so the produced clip is
+                # discovered by scanning the (empty, per-request) working directory afterward.
+                produced = sorted(
+                    Path(tmp_dir).rglob("*.wav"), key=lambda item: item.stat().st_mtime, reverse=True
+                )
+                if result.returncode != 0 or not produced:
+                    detail = result.stderr.decode("utf-8", errors="replace").strip()[-2000:]
+                    raise RuntimeError(detail or "Navoiy TTS inference failed")
+                audio_bytes = produced[0].read_bytes()
+                logger.info(
+                    "tts_inference_complete emotion=%s characters=%d duration_seconds=%.3f bytes=%d",
+                    emotion,
+                    len(text),
+                    time.perf_counter() - started_at,
+                    len(audio_bytes),
+                )
+                return audio_bytes
+        finally:
+            self._inference_lock.release()
+
+
 runtime = WhisperRuntime()
-app = FastAPI(title="Dastro Uzbek STT", version="1.0.0")
+tts_runtime = NavoiyTTSRuntime()
+app = FastAPI(title="Dastro Uzbek Voice", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins(),
@@ -395,6 +583,7 @@ async def preload_model() -> None:
         HF_HOME,
     )
     runtime.start_preload()
+    tts_runtime.start_preload()
 
 
 @app.middleware("http")
@@ -481,6 +670,7 @@ def health() -> dict[str, Any]:
         "model": MODEL_ID,
         "uptime_seconds": round(time.monotonic() - STARTED_AT, 3),
         **runtime.status(),
+        **tts_runtime.status(),
     }
 
 
@@ -511,3 +701,83 @@ async def openai_compatible_transcribe(
 ) -> dict[str, str]:
     result = await _transcribe_upload(request, file, language)
     return {"text": result.text}
+
+
+async def _synthesize(request: Request, text: str, emotion: str, reference: UploadFile | None) -> bytes:
+    _check_api_key(request)
+    if not TTS_ENABLED:
+        raise HTTPException(
+            status_code=503,
+            detail="TTS is not enabled on this deployment. Run setup_tts_model.py and set TTS_ENABLED=true.",
+        )
+    text = text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text must not be empty")
+    if len(text) > TTS_MAX_TEXT_CHARS:
+        raise HTTPException(status_code=422, detail=f"text must be {TTS_MAX_TEXT_CHARS} characters or fewer")
+    emotion = (emotion or TTS_DEFAULT_EMOTION).strip().lower()
+    if emotion not in ALLOWED_EMOTIONS:
+        raise HTTPException(
+            status_code=422, detail=f"emotion must be one of: {', '.join(sorted(ALLOWED_EMOTIONS))}"
+        )
+
+    reference_path = TTS_REFERENCE_PATH
+    tmp_reference_dir: tempfile.TemporaryDirectory[str] | None = None
+    if reference is not None:
+        payload = await reference.read(MAX_AUDIO_BYTES + 1)
+        if len(payload) > MAX_AUDIO_BYTES:
+            raise HTTPException(status_code=413, detail="Reference audio is too large")
+        if not payload:
+            raise HTTPException(status_code=400, detail="Reference audio is empty")
+        try:
+            reference_audio = decode_audio(payload)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        tmp_reference_dir = tempfile.TemporaryDirectory(prefix="navoiy-tts-ref-")
+        reference_path = Path(tmp_reference_dir.name) / "reference.wav"
+        _write_wav(reference_path, reference_audio, SAMPLE_RATE)
+    elif not TTS_REFERENCE_PATH.is_file():
+        raise HTTPException(
+            status_code=422,
+            detail="No reference voice is configured. Upload a reference clip or set TTS_REFERENCE_PATH.",
+        )
+
+    try:
+        logger.info("synthesis_started emotion=%s characters=%d", emotion, len(text))
+        audio_bytes = await run_in_threadpool(tts_runtime.synthesize, text, emotion, reference_path)
+    except RuntimeError as error:
+        logger.warning("tts_unavailable state=%s error=%s", tts_runtime.state, error)
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except Exception as error:
+        logger.exception("synthesis_failed")
+        raise HTTPException(status_code=500, detail="Speech synthesis failed") from error
+    finally:
+        if tmp_reference_dir is not None:
+            tmp_reference_dir.cleanup()
+    return audio_bytes
+
+
+@app.post("/synthesize")
+async def synthesize(
+    request: Request,
+    text: str = Form(...),
+    emotion: str = Form(TTS_DEFAULT_EMOTION),
+    reference: UploadFile | None = File(None),
+) -> Response:
+    audio_bytes = await _synthesize(request, text, emotion, reference)
+    return Response(
+        content=audio_bytes,
+        media_type="audio/wav",
+        headers={"Content-Disposition": 'inline; filename="speech.wav"'},
+    )
+
+
+class SpeechRequest(BaseModel):
+    input: str
+    voice: str = TTS_DEFAULT_EMOTION
+
+
+@app.post("/v1/audio/speech")
+async def openai_compatible_speech(request: Request, body: SpeechRequest) -> Response:
+    audio_bytes = await _synthesize(request, body.input, body.voice, None)
+    return Response(content=audio_bytes, media_type="audio/wav")

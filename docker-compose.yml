@@ -17,3 +17,33 @@ services:
       interval: 15s
       timeout: 5s
       retries: 10
+
+  # Requires an NVIDIA GPU and the NVIDIA Container Toolkit on the host. Build
+  # is slow and the image is large (CosyVoice + a ~0.5B parameter base model
+  # are downloaded during the build). See README's Text-to-speech section.
+  tts:
+    build:
+      context: .
+      dockerfile: Dockerfile.tts
+    env_file: .env
+    environment:
+      TTS_ENABLED: "true"
+      PORT: 8091
+    ports:
+      - "8091:8091"
+    volumes:
+      - ./models:/data/models
+      - ./huggingface-cache:/data/huggingface
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8091/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
