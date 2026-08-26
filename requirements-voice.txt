@@ -1,5 +1,5 @@
-# Dependencies for the Navoiy TTS service (Dockerfile.tts), which runs on a
-# CUDA GPU and cannot share requirements.txt's CPU-only torch build.
+# Dependencies for the combined STT+TTS image (Dockerfile.voice), which runs
+# on a CUDA GPU and cannot share requirements.txt's CPU-only torch build.
 #
 # CosyVoice has its own requirements.txt (WeTextProcessing, onnxruntime, etc.)
 # that must be installed separately after cloning it — see setup_tts_model.py

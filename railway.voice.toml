@@ -1,6 +1,6 @@
 [build]
 builder = "DOCKERFILE"
-dockerfilePath = "Dockerfile.tts"
+dockerfilePath = "Dockerfile.voice"
 
 [deploy]
 healthcheckPath = "/health"
