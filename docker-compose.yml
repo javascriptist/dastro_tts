@@ -1,4 +1,5 @@
 services:
+  # CPU-only, STT alone, no GPU needed. Cheaper if you don't want TTS at all.
   stt:
     build: .
     env_file: .env
@@ -18,13 +19,14 @@ services:
       timeout: 5s
       retries: 10
 
+  # STT + Navoiy TTS together, serving the whole playground from one origin.
   # Requires an NVIDIA GPU and the NVIDIA Container Toolkit on the host. Build
   # is slow and the image is large (CosyVoice + a ~0.5B parameter base model
   # are downloaded during the build). See README's Text-to-speech section.
-  tts:
+  voice:
     build:
       context: .
-      dockerfile: Dockerfile.tts
+      dockerfile: Dockerfile.voice
     env_file: .env
     environment:
       TTS_ENABLED: "true"

@@ -2,9 +2,14 @@
 
 Standalone speech-to-text and text-to-speech services for Uzbek.
 
-Speech-to-text is built around [`OvozifyLabs/whisper-small-uz-v1`](https://huggingface.co/OvozifyLabs/whisper-small-uz-v1) and supports Uzbek, Russian, and English. The service accepts WAV directly and accepts MP3, M4A, and WebM when FFmpeg is installed. It also serves a browser playground at `/`, which includes both the transcription bench and, once configured, the Navoiy TTS bench described below.
+Speech-to-text is built around [`OvozifyLabs/whisper-small-uz-v1`](https://huggingface.co/OvozifyLabs/whisper-small-uz-v1) and supports Uzbek, Russian, and English. The service accepts WAV directly and accepts MP3, M4A, and WebM when FFmpeg is installed.
 
-Text-to-speech is built around [Navoiy TTS](https://aisha.group/en/blog/navoiy-tts-open-source-uzbek-text-to-speech) (`aisha-org/navoiy-tts` on Hugging Face), a CosyVoice2-0.5B fine-tune for Uzbek. It is off by default — see [Text-to-speech (Navoiy TTS)](#text-to-speech-navoiy-tts) before enabling it, since it needs a CUDA GPU and cannot deploy alongside the CPU-only STT service.
+Text-to-speech is built around [Navoiy TTS](https://aisha.group/en/blog/navoiy-tts-open-source-uzbek-text-to-speech) (`aisha-org/navoiy-tts` on Hugging Face), a CosyVoice2-0.5B fine-tune for Uzbek. It's off by default (`TTS_ENABLED=false`) — see [Text-to-speech (Navoiy TTS)](#text-to-speech-navoiy-tts) before enabling it, since it needs a CUDA GPU.
+
+Both live in the same `app.py` and the same browser playground at `/`, so they're meant to run **together as one service** — that's what makes the playground's transcription bench and text-to-speech bench work side by side against a single origin. There are two deployment images:
+
+- **`Dockerfile` / `railway.toml`** — CPU-only, speech-to-text alone, cheapest. TTS stays disabled.
+- **`Dockerfile.voice` / `railway.voice.toml`** — GPU, speech-to-text **and** text-to-speech together. Use this if you want the whole playground working.
 
 ## Run locally with Python
 
@@ -40,6 +45,8 @@ docker compose up --build
 The first boot downloads the model in the background while the HTTP server is already available. Later boots reuse `./models` and `./huggingface-cache`.
 
 ## Railway deployment
+
+This is the CPU-only, STT-alone deployment. If you want text-to-speech in the same service, skip ahead to [Text-to-speech (Navoiy TTS)](#text-to-speech-navoiy-tts) and deploy `Dockerfile.voice` instead — everything below still applies to it (variables, `/health` polling), it's just a different Dockerfile/toml and a GPU plan.
 
 Railway can deploy this folder directly because it contains a `Dockerfile` and `railway.toml`.
 
@@ -84,7 +91,7 @@ The playground is available at `https://YOUR-RAILWAY-DOMAIN/`. If `STT_API_KEY` 
 
 ## Text-to-speech (Navoiy TTS)
 
-[Navoiy TTS](https://aisha.group/en/blog/navoiy-tts-open-source-uzbek-text-to-speech) turns Uzbek text into speech with a set of emotion presets (`calm`, `happy`, `sad`, `angry`, `nervous`, `surprised`, `whisper`, `warm`, `tired`, `sarcastic`) and includes a normalizer for numbers, dates, times, and Uzbek Cyrillic. It's a CosyVoice2-0.5B fine-tune, distributed as a checkpoint plus the upstream [CosyVoice](https://github.com/FunAudioLLM/CosyVoice) engine — it needs a CUDA GPU and does not fit the CPU-only STT deployment above, so it's wired into the same `app.py` and playground but shipped as a **separate image** (`Dockerfile.tts`) that you deploy as its own service.
+[Navoiy TTS](https://aisha.group/en/blog/navoiy-tts-open-source-uzbek-text-to-speech) turns Uzbek text into speech with a set of emotion presets (`calm`, `happy`, `sad`, `angry`, `nervous`, `surprised`, `whisper`, `warm`, `tired`, `sarcastic`) and includes a normalizer for numbers, dates, times, and Uzbek Cyrillic. It's a CosyVoice2-0.5B fine-tune, distributed as a checkpoint plus the upstream [CosyVoice](https://github.com/FunAudioLLM/CosyVoice) engine — it needs a CUDA GPU, which the CPU-only STT deployment above doesn't have. `app.py` and the playground already treat STT and TTS as one service; `Dockerfile.voice` is the image that actually turns both on together, on a GPU.
 
 > **Heads up:** the upstream `inference.py` only documents a CLI invocation (`--cosyvoice-dir`, `--base-model-dir`, `--checkpoint`, `--reference`, `--text`, `--emotion`), not a stable Python API, and this integration was written without network access to the actual `aisha-org/navoiy-tts` and `FunAudioLLM/CosyVoice` repositories to confirm exact filenames or flags. `app.py` shells out to the documented CLI and discovers the produced clip by scanning its (fresh, per-request) working directory for the newest `.wav` file, so it should survive minor differences in the upstream output filename — but confirm the flags still match, and that a `reference.wav` ships in the checkpoint's files, once you've actually run `setup_tts_model.py`. Each request currently reloads the model from disk (no persistent in-process model yet), so latency per call will be higher than a typical TTS API; see the docstring on `NavoiyTTSRuntime` in `app.py` if you want to change that.
 
@@ -96,7 +103,8 @@ Requirements: an NVIDIA GPU with CUDA, `git`, and several GB of free disk (CosyV
 cd stt
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements-tts.txt
+pip install -r requirements-voice.txt
+python download_model.py           # Whisper weights, same as the CPU-only setup
 python setup_tts_model.py          # clones CosyVoice, downloads the base model + checkpoint
 pip install -r models/CosyVoice/requirements.txt
 cp .env.example .env                # then set TTS_ENABLED=true
@@ -110,26 +118,30 @@ uvicorn app:app --host 0.0.0.0 --port 8090
 ```bash
 cd stt
 cp .env.example .env
-docker compose up --build tts
+docker compose up --build voice
 ```
 
-Requires the NVIDIA Container Toolkit on the host. This builds `Dockerfile.tts`, which clones CosyVoice and downloads the base model during the build, so the first build is slow and the resulting image is large.
+Requires the NVIDIA Container Toolkit on the host. This builds `Dockerfile.voice`, which downloads the Whisper weights, clones CosyVoice, and downloads its base model during the build, so the first build is slow and the resulting image is large. It serves both STT and TTS from one port.
 
 ### Railway deployment
 
-Deploy this as a **second** Railway service pointed at the same repo, not the existing STT service:
+Deploy one service — the same repo, pointed at the GPU image instead of the CPU one:
 
-1. Create another Railway service from `https://github.com/javascriptist/dastro_tts`, root directory empty.
-2. Choose a GPU-backed Railway plan/region — the default CPU services used for STT won't run this.
-3. Set the service's config-as-code path to `railway.tts.toml` (Railway's service settings let you point at a non-default toml) so it builds `Dockerfile.tts` instead of `Dockerfile`.
-4. Add a Volume mounted at `/data` so the cloned engine and downloaded weights survive redeploys.
-5. Set `STT_API_KEY` (reused as the TTS key — see `/synthesize` below) and `CORS_ORIGINS` as for the STT service. `TTS_ENABLED`, `TTS_MODEL_PATH`, `TTS_COSYVOICE_DIR`, `TTS_BASE_MODEL_DIR`, and `HF_HOME` are already set in `Dockerfile.tts`.
+1. Create a Railway service from `https://github.com/javascriptist/dastro_tts`, root directory empty. If you already have the CPU-only STT service running, either switch its config-as-code path (next step) or create a fresh service and retire the old one — either way you end up with one service serving both.
+2. Set the service's config-as-code path to `railway.voice.toml` (Railway's service settings let you point at a non-default toml) so it builds `Dockerfile.voice` instead of `Dockerfile`.
+3. Choose a GPU-backed Railway plan/region — the CPU plan used for STT-only won't run this.
+4. Add a Volume mounted at `/data` so the Whisper weights, cloned engine, and downloaded TTS weights survive redeploys.
+5. Set `STT_API_KEY` and `CORS_ORIGINS` as in the STT-only setup above. `TTS_ENABLED`, `MODEL_ID`, `MODEL_PATH`, `TTS_MODEL_PATH`, `TTS_COSYVOICE_DIR`, `TTS_BASE_MODEL_DIR`, and `HF_HOME` are already set in `Dockerfile.voice`.
 
-After deployment:
+After deployment, the playground at `https://YOUR-RAILWAY-DOMAIN/` has both benches working, and:
 
 ```bash
-curl https://YOUR-TTS-DOMAIN/health
-curl -X POST https://YOUR-TTS-DOMAIN/synthesize \
+curl https://YOUR-RAILWAY-DOMAIN/health
+curl -X POST https://YOUR-RAILWAY-DOMAIN/transcribe \
+  -H "X-API-Key: YOUR_STT_API_KEY" \
+  -F "file=@sample.wav" \
+  -F "language=uz"
+curl -X POST https://YOUR-RAILWAY-DOMAIN/synthesize \
   -H "X-API-Key: YOUR_STT_API_KEY" \
   -F "text=Assalomu alaykum, bu ovoz sinovi." \
   -F "emotion=warm" \
