@@ -15,7 +15,7 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install -r requirements.txt
 
-COPY app.py download_model.py .env.example ./
+COPY app.py voicelab.py download_model.py .env.example ./
 COPY static ./static
 RUN mkdir -p /data/models/whisper-small-uz-v1 /data/huggingface
 

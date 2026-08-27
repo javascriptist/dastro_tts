@@ -30,7 +30,7 @@ WORKDIR /app
 COPY requirements-voice.txt ./
 RUN pip install --no-cache-dir -r requirements-voice.txt
 
-COPY app.py download_model.py setup_tts_model.py .env.example ./
+COPY app.py voicelab.py download_model.py setup_tts_model.py .env.example ./
 COPY static ./static
 RUN mkdir -p /data/models /data/huggingface
 
