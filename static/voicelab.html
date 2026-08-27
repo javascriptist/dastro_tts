@@ -1,0 +1,1846 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f2eee6" />
+    <title>Dastro Voice Lab — Pipeline</title>
+    <style>
+      :root {
+        --paper: #f2eee6;
+        --paper-dark: #e8e1d5;
+        --ink: #171817;
+        --muted: #6f746d;
+        --line: rgba(23, 24, 23, 0.17);
+        --teal: #0f7770;
+        --teal-dark: #075c57;
+        --coral: #e56e4d;
+        --yellow: #e4b84f;
+        --white: #fffdf8;
+        --shadow: 0 18px 50px rgba(31, 28, 21, 0.1);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        background: var(--paper);
+      }
+
+      body {
+        min-height: 100vh;
+        margin: 0;
+        color: var(--ink);
+        background-color: var(--paper);
+        background-image: repeating-linear-gradient(0deg, rgba(23, 24, 23, 0.025) 0 1px, transparent 1px 5px);
+        font-family: "Avenir Next", "Trebuchet MS", sans-serif;
+      }
+
+      body::before {
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        pointer-events: none;
+        content: "";
+        opacity: 0.35;
+        background-image: linear-gradient(90deg, transparent 0 49%, rgba(23, 24, 23, 0.035) 49% 50%, transparent 50% 100%);
+        background-size: 72px 72px;
+      }
+
+      button,
+      input,
+      select,
+      textarea {
+        font: inherit;
+      }
+
+      button {
+        cursor: pointer;
+      }
+
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
+      }
+
+      :focus-visible {
+        outline: 3px solid var(--coral);
+        outline-offset: 3px;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin-top: 0;
+      }
+
+      .shell {
+        width: min(1180px, calc(100% - 48px));
+        margin: 0 auto;
+        padding: 28px 0 60px;
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-height: 38px;
+        gap: 16px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 13px;
+        font-weight: 800;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+      }
+
+      .brand-mark {
+        display: grid;
+        width: 22px;
+        height: 22px;
+        place-items: center;
+        color: var(--white);
+        background: var(--ink);
+        font-size: 11px;
+        font-weight: 900;
+      }
+
+      .brand a {
+        color: var(--muted);
+        font-weight: 700;
+        text-decoration: none;
+      }
+
+      .brand a:hover {
+        color: var(--teal);
+      }
+
+      .status {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--yellow);
+        box-shadow: 0 0 0 4px rgba(228, 184, 79, 0.2);
+      }
+
+      .status-dot.ready {
+        background: var(--teal);
+        box-shadow: 0 0 0 4px rgba(15, 119, 112, 0.17);
+      }
+
+      .status-dot.down {
+        background: var(--coral);
+        box-shadow: 0 0 0 4px rgba(229, 110, 77, 0.2);
+      }
+
+      .intro {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 280px;
+        gap: 48px;
+        align-items: end;
+        padding: 62px 0 40px;
+      }
+
+      .kicker {
+        margin: 0 0 18px;
+        color: var(--teal);
+        font-size: 12px;
+        font-weight: 900;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        max-width: 700px;
+        margin-bottom: 18px;
+        font-family: Rockwell, "Avenir Next", serif;
+        font-size: 60px;
+        font-weight: 800;
+        line-height: 0.98;
+      }
+
+      .intro-copy {
+        max-width: 540px;
+        margin-bottom: 0;
+        color: var(--muted);
+        font-size: 17px;
+        line-height: 1.55;
+      }
+
+      .intro-note {
+        padding: 18px 0 0 22px;
+        border-left: 3px solid var(--coral);
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.55;
+      }
+
+      .intro-note strong {
+        display: block;
+        margin-bottom: 7px;
+        color: var(--ink);
+        font-size: 14px;
+      }
+
+      .section-label {
+        margin: 0;
+        font-size: 11px;
+        font-weight: 900;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      .section-index {
+        color: var(--coral);
+        font-size: 12px;
+        font-weight: 900;
+      }
+
+      .pipeline {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 0;
+        margin-bottom: 26px;
+        border: 1px solid var(--ink);
+        background: rgba(255, 253, 248, 0.55);
+      }
+
+      .stage {
+        position: relative;
+        padding: 20px 22px;
+        border-right: 1px solid var(--line);
+      }
+
+      .stage:last-child {
+        border-right: 0;
+      }
+
+      .stage::after {
+        position: absolute;
+        top: 50%;
+        right: -9px;
+        z-index: 2;
+        display: grid;
+        width: 18px;
+        height: 18px;
+        place-items: center;
+        transform: translateY(-50%);
+        color: var(--muted);
+        background: var(--paper);
+        content: "\203A";
+        font-size: 17px;
+        font-weight: 900;
+        line-height: 1;
+      }
+
+      .stage:last-child::after {
+        content: none;
+      }
+
+      .stage-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 12px;
+      }
+
+      .stage-name {
+        margin: 0 0 4px;
+        font-family: Rockwell, "Avenir Next", serif;
+        font-size: 21px;
+        line-height: 1.1;
+      }
+
+      .stage-engine {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.4;
+      }
+
+      .stage-state {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        padding: 4px 9px;
+        border: 1px solid var(--line);
+        color: var(--muted);
+        background: rgba(242, 238, 230, 0.8);
+        font-size: 10px;
+        font-weight: 900;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+
+      .stage-state::before {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: currentColor;
+        content: "";
+      }
+
+      .stage-state.working {
+        color: var(--teal-dark);
+        border-color: var(--teal);
+        background: rgba(15, 119, 112, 0.1);
+        animation: blink 900ms ease-in-out infinite alternate;
+      }
+
+      .stage-state.done {
+        color: var(--teal-dark);
+        border-color: var(--teal);
+        background: rgba(15, 119, 112, 0.1);
+      }
+
+      .stage-state.error {
+        color: var(--coral);
+        border-color: var(--coral);
+        background: rgba(229, 110, 77, 0.1);
+      }
+
+      @keyframes blink {
+        from {
+          opacity: 0.5;
+        }
+        to {
+          opacity: 1;
+        }
+      }
+
+      .stage-latency {
+        margin: 10px 0 0;
+        color: var(--muted);
+        font-family: "Courier New", monospace;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .workspace {
+        display: grid;
+        grid-template-columns: minmax(0, 1.02fr) minmax(340px, 0.98fr);
+        min-height: 620px;
+        border: 1px solid var(--ink);
+        background: rgba(255, 253, 248, 0.48);
+        box-shadow: var(--shadow);
+      }
+
+      .console,
+      .conversation {
+        display: flex;
+        min-width: 0;
+        padding: 28px;
+        flex-direction: column;
+      }
+
+      .console {
+        border-right: 1px solid var(--ink);
+      }
+
+      .console-head,
+      .conversation-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+      }
+
+      .mic-stage {
+        display: flex;
+        min-height: 210px;
+        margin: 25px 0 18px;
+        padding: 24px;
+        flex-direction: column;
+        justify-content: space-between;
+        border: 1px dashed rgba(23, 24, 23, 0.34);
+        background: rgba(242, 238, 230, 0.72);
+        transition: border-color 180ms ease, background-color 180ms ease;
+      }
+
+      .mic-stage.live {
+        border-style: solid;
+        border-color: var(--teal);
+      }
+
+      .mic-stage.capturing {
+        border-color: var(--coral);
+        background: rgba(229, 110, 77, 0.07);
+      }
+
+      .mic-copy h2 {
+        margin-bottom: 8px;
+        font-family: Rockwell, "Avenir Next", serif;
+        font-size: 25px;
+        line-height: 1.05;
+      }
+
+      .mic-copy p {
+        max-width: 380px;
+        margin-bottom: 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .wave {
+        display: flex;
+        height: 52px;
+        align-items: center;
+        gap: 4px;
+        margin-top: 18px;
+        overflow: hidden;
+      }
+
+      .wave i {
+        display: block;
+        width: 5px;
+        height: 10px;
+        min-height: 6px;
+        background: var(--teal);
+        opacity: 0.35;
+        transform-origin: center;
+        transition: height 90ms linear, opacity 180ms ease;
+      }
+
+      .mic-stage.capturing .wave i {
+        background: var(--coral);
+        opacity: 0.9;
+      }
+
+      .mic-stage.live .wave i {
+        opacity: 0.75;
+      }
+
+      .control-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .call-button {
+        display: inline-flex;
+        min-width: 196px;
+        min-height: 48px;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        color: var(--white);
+        background: var(--ink);
+        border: 1px solid var(--ink);
+        font-size: 13px;
+        font-weight: 900;
+        transition: transform 160ms ease, background-color 160ms ease;
+      }
+
+      .call-button:hover:not(:disabled) {
+        transform: translateY(-2px);
+      }
+
+      .call-button.live {
+        color: var(--white);
+        background: var(--coral);
+        border-color: var(--coral);
+      }
+
+      .call-icon {
+        display: inline-block;
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: var(--coral);
+      }
+
+      .call-button.live .call-icon {
+        border-radius: 1px;
+        background: var(--white);
+      }
+
+      .timer {
+        min-width: 57px;
+        color: var(--muted);
+        font-family: "Courier New", monospace;
+        font-size: 14px;
+        font-weight: 700;
+        text-align: right;
+      }
+
+      .composer {
+        display: flex;
+        gap: 10px;
+        margin-top: 16px;
+      }
+
+      .composer input {
+        width: 100%;
+        height: 44px;
+        padding: 0 12px;
+        color: var(--ink);
+        background: var(--white);
+        border: 1px solid var(--line);
+        border-radius: 0;
+      }
+
+      .composer button {
+        min-width: 96px;
+        color: var(--ink);
+        background: var(--yellow);
+        border: 1px solid var(--yellow);
+        font-size: 12px;
+        font-weight: 900;
+      }
+
+      .settings {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 12px;
+        margin-top: 20px;
+      }
+
+      .field {
+        min-width: 0;
+      }
+
+      .field.wide {
+        grid-column: 1 / -1;
+      }
+
+      .field label {
+        display: block;
+        margin-bottom: 7px;
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 900;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      .field input,
+      .field select {
+        width: 100%;
+        height: 42px;
+        padding: 0 12px;
+        color: var(--ink);
+        background: var(--white);
+        border: 1px solid var(--line);
+        border-radius: 0;
+      }
+
+      .field input::placeholder {
+        color: #9b9d96;
+      }
+
+      .toggle {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        margin-top: 16px;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.4;
+      }
+
+      .toggle input {
+        width: 16px;
+        height: 16px;
+        flex: none;
+        accent-color: var(--teal);
+      }
+
+      .hint {
+        margin: 16px 0 0;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.5;
+      }
+
+      .conversation {
+        background: var(--ink);
+        color: var(--white);
+      }
+
+      .conversation .section-label {
+        color: var(--white);
+      }
+
+      .conversation .section-index {
+        color: var(--yellow);
+      }
+
+      .turns {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        gap: 16px;
+        margin: 22px 0 16px;
+        padding: 20px 4px 20px 0;
+        border-top: 1px solid rgba(255, 253, 248, 0.24);
+        border-bottom: 1px solid rgba(255, 253, 248, 0.24);
+        max-height: 460px;
+        overflow-y: auto;
+      }
+
+      .turn-empty {
+        margin: auto 0;
+        color: rgba(255, 253, 248, 0.42);
+        font-family: Rockwell, "Avenir Next", serif;
+        font-size: 24px;
+        line-height: 1.25;
+      }
+
+      .turn {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .turn-who {
+        color: rgba(255, 253, 248, 0.45);
+        font-size: 10px;
+        font-weight: 900;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      .turn.host .turn-who {
+        color: var(--yellow);
+      }
+
+      .turn-text {
+        margin: 0;
+        color: rgba(255, 253, 248, 0.94);
+        font-size: 15px;
+        line-height: 1.5;
+        overflow-wrap: anywhere;
+      }
+
+      .turn.host .turn-text {
+        font-family: Rockwell, "Avenir Next", serif;
+        font-size: 19px;
+        line-height: 1.3;
+      }
+
+      .turn.note .turn-text {
+        color: var(--coral);
+        font-size: 13px;
+      }
+
+      .turn-meta {
+        color: rgba(255, 253, 248, 0.42);
+        font-family: "Courier New", monospace;
+        font-size: 11px;
+      }
+
+      .turn-audio {
+        width: 100%;
+        max-width: 100%;
+        height: 32px;
+        margin-top: 4px;
+      }
+
+      .conversation-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding-top: 6px;
+        color: rgba(255, 253, 248, 0.48);
+        font-size: 11px;
+      }
+
+      .footer-state {
+        color: var(--yellow);
+        font-weight: 700;
+      }
+
+      .footer-state.error {
+        color: var(--coral);
+      }
+
+      .ghost-button {
+        padding: 7px 12px;
+        color: rgba(255, 253, 248, 0.8);
+        background: transparent;
+        border: 1px solid rgba(255, 253, 248, 0.3);
+        font-size: 11px;
+        font-weight: 800;
+      }
+
+      .ghost-button:hover {
+        color: var(--ink);
+        background: var(--yellow);
+        border-color: var(--yellow);
+      }
+
+      .samples {
+        margin-top: 44px;
+      }
+
+      .samples-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 16px;
+        padding-bottom: 14px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .samples-head p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .chip-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 18px 0 30px;
+      }
+
+      .chip {
+        padding: 8px 12px;
+        color: var(--ink);
+        background: var(--white);
+        border: 1px solid var(--line);
+        font-size: 12px;
+        text-align: left;
+        transition: border-color 140ms ease, background-color 140ms ease;
+      }
+
+      .chip:hover {
+        border-color: var(--teal);
+        background: rgba(15, 119, 112, 0.07);
+      }
+
+      .chip small {
+        display: inline-block;
+        margin-right: 7px;
+        color: var(--teal);
+        font-size: 10px;
+        font-weight: 900;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+
+      .restaurants {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+        gap: 1px;
+        border: 1px solid var(--line);
+        background: var(--line);
+      }
+
+      .restaurant {
+        padding: 14px 16px;
+        background: var(--white);
+        text-align: left;
+        border: 0;
+        transition: background-color 140ms ease;
+      }
+
+      .restaurant:hover {
+        background: rgba(15, 119, 112, 0.08);
+      }
+
+      .restaurant strong {
+        display: block;
+        margin-bottom: 4px;
+        font-size: 14px;
+      }
+
+      .restaurant span {
+        display: block;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.45;
+      }
+
+      .restaurant .price {
+        display: inline-block;
+        margin-top: 6px;
+        color: var(--teal);
+        font-size: 11px;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+      }
+
+      .error {
+        color: var(--coral);
+      }
+
+      @media (max-width: 900px) {
+        .pipeline {
+          grid-template-columns: 1fr;
+        }
+
+        .stage {
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+        }
+
+        .stage:last-child {
+          border-bottom: 0;
+        }
+
+        .stage::after {
+          top: auto;
+          right: 50%;
+          bottom: -9px;
+          transform: translateX(50%) rotate(90deg);
+        }
+      }
+
+      @media (max-width: 820px) {
+        .shell {
+          width: min(100% - 30px, 640px);
+          padding-top: 18px;
+        }
+
+        .intro {
+          display: block;
+          padding: 46px 0 30px;
+        }
+
+        h1 {
+          font-size: 44px;
+        }
+
+        .intro-note {
+          max-width: 380px;
+          margin-top: 26px;
+        }
+
+        .workspace {
+          display: block;
+        }
+
+        .console {
+          border-right: 0;
+          border-bottom: 1px solid var(--ink);
+        }
+      }
+
+      @media (max-width: 500px) {
+        .shell {
+          width: min(100% - 22px, 640px);
+        }
+
+        h1 {
+          font-size: 37px;
+        }
+
+        .console,
+        .conversation {
+          padding: 21px;
+        }
+
+        .settings {
+          grid-template-columns: 1fr;
+        }
+
+        .control-row {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .call-button {
+          width: 100%;
+        }
+
+        .timer {
+          width: 100%;
+          text-align: left;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark">D</span><span>Voice Lab</span>
+          <a href="/">&#8592; Whisper bench</a>
+        </div>
+        <div class="status" aria-live="polite"><span class="status-dot" id="service-dot"></span><span id="service-label">Checking services</span></div>
+      </header>
+
+      <main>
+        <section class="intro" aria-labelledby="page-title">
+          <div>
+            <p class="kicker">VoiceLab Lison &middot; OpenAI &middot; Dastro</p>
+            <h1 id="page-title">Speak.<br />Book a table.</h1>
+            <p class="intro-copy">A full voice loop on one page. Your voice goes to VoiceLab speech-to-text, the transcript goes to the Dastro reservation agent on OpenAI, and the reply comes back in a VoiceLab voice.</p>
+          </div>
+          <div class="intro-note"><strong>Keys stay on the server.</strong>The browser only talks to this service. The VoiceLab key and the OpenAI key are read from the environment and never reach this page.</div>
+        </section>
+
+        <section class="pipeline" aria-label="Pipeline stages">
+          <article class="stage">
+            <div class="stage-head">
+              <span class="section-index">01</span>
+              <span class="stage-state" id="state-stt">Idle</span>
+            </div>
+            <h2 class="stage-name">Live speech to text</h2>
+            <p class="stage-engine" id="engine-stt">VoiceLab STT</p>
+            <p class="stage-latency" id="latency-stt">--</p>
+          </article>
+          <article class="stage">
+            <div class="stage-head">
+              <span class="section-index">02</span>
+              <span class="stage-state" id="state-agent">Idle</span>
+            </div>
+            <h2 class="stage-name">OpenAI agent</h2>
+            <p class="stage-engine" id="engine-agent">Dastro reservation host</p>
+            <p class="stage-latency" id="latency-agent">--</p>
+          </article>
+          <article class="stage">
+            <div class="stage-head">
+              <span class="section-index">03</span>
+              <span class="stage-state" id="state-tts">Idle</span>
+            </div>
+            <h2 class="stage-name">Text to speech</h2>
+            <p class="stage-engine" id="engine-tts">VoiceLab Lison</p>
+            <p class="stage-latency" id="latency-tts">--</p>
+          </article>
+        </section>
+
+        <section class="workspace" aria-label="Voice pipeline console">
+          <div class="console">
+            <div class="console-head">
+              <h2 class="section-label">Console</h2>
+              <span class="section-index" id="pipeline-mode">Voice loop</span>
+            </div>
+
+            <div class="mic-stage" id="mic-stage">
+              <div class="mic-copy">
+                <h2 id="mic-title">Start the call.</h2>
+                <p id="mic-help">The microphone listens continuously. Speak, pause, and the pause commits your turn to the pipeline.</p>
+              </div>
+              <div class="wave" id="wave" aria-hidden="true">
+                <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+              </div>
+            </div>
+
+            <div class="control-row">
+              <button class="call-button" id="call-button" type="button"><span class="call-icon" aria-hidden="true"></span><span id="call-label">Start call</span></button>
+              <span class="timer" id="timer">00:00</span>
+            </div>
+
+            <div class="composer">
+              <input id="text-input" type="text" placeholder="Or type a guest line and skip the microphone" autocomplete="off" />
+              <button id="send-button" type="button">Send</button>
+            </div>
+
+            <div class="settings">
+              <div class="field">
+                <label for="language">Language</label>
+                <select id="language">
+                  <option value="uz">Uzbek</option>
+                  <option value="ru">Russian</option>
+                  <option value="en">English</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="voice">VoiceLab voice</label>
+                <select id="voice"><option value="">Loading voices</option></select>
+              </div>
+              <div class="field">
+                <label for="stt-engine">Speech to text</label>
+                <select id="stt-engine">
+                  <option value="voicelab">VoiceLab STT</option>
+                  <option value="realtime">VoiceLab realtime</option>
+                  <option value="whisper">Local Whisper</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="openai-model">OpenAI model</label>
+                <select id="openai-model"></select>
+              </div>
+              <div class="field wide">
+                <label for="openai-key">OpenAI key <span id="openai-key-note">(optional override)</span></label>
+                <input id="openai-key" type="password" autocomplete="off" placeholder="sk-... only if you want a different key than the server's" />
+              </div>
+            </div>
+
+            <label class="toggle"><input id="browser-voice" type="checkbox" /><span>Fall back to the browser voice when VoiceLab TTS is unavailable. Clearly labelled in the transcript, so it is never mistaken for VoiceLab audio.</span></label>
+            <p class="hint" id="realtime-hint">Audio is sent one utterance at a time and is not stored by this page.</p>
+          </div>
+
+          <div class="conversation">
+            <div class="conversation-head">
+              <h2 class="section-label">Call transcript</h2>
+              <span class="section-index" id="turn-count">0 turns</span>
+            </div>
+            <div class="turns" id="turns">
+              <p class="turn-empty" id="turns-empty">Dastro, assalomu alaykum.<br />Your call will appear here.</p>
+            </div>
+            <div class="conversation-footer">
+              <span class="footer-state" id="footer-state">Idle</span>
+              <button class="ghost-button" id="reset-button" type="button">Reset call</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="samples" aria-label="Sample guest lines and restaurants">
+          <div class="samples-head">
+            <h2 class="section-label">Try these</h2>
+            <p>Click a line to send it as the guest. Click a restaurant to ask about it.</p>
+          </div>
+          <div class="chip-row" id="sample-row"></div>
+          <div class="samples-head">
+            <h2 class="section-label">The twenty Dastro restaurants</h2>
+            <p>The only restaurants the agent may book.</p>
+          </div>
+          <div class="chip-row" style="margin-bottom: 0"></div>
+          <div class="restaurants" id="restaurant-grid"></div>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      const SAMPLE_RATE = 16000;
+      const SILENCE_HANGOVER_MS = 900;
+      const MIN_UTTERANCE_MS = 400;
+      const MAX_UTTERANCE_MS = 20000;
+      const PREROLL_MS = 300;
+
+      const elements = {
+        serviceDot: document.getElementById("service-dot"),
+        serviceLabel: document.getElementById("service-label"),
+        micStage: document.getElementById("mic-stage"),
+        micTitle: document.getElementById("mic-title"),
+        micHelp: document.getElementById("mic-help"),
+        wave: document.getElementById("wave"),
+        callButton: document.getElementById("call-button"),
+        callLabel: document.getElementById("call-label"),
+        timer: document.getElementById("timer"),
+        textInput: document.getElementById("text-input"),
+        sendButton: document.getElementById("send-button"),
+        language: document.getElementById("language"),
+        voice: document.getElementById("voice"),
+        sttEngine: document.getElementById("stt-engine"),
+        openaiModel: document.getElementById("openai-model"),
+        openaiKey: document.getElementById("openai-key"),
+        openaiKeyNote: document.getElementById("openai-key-note"),
+        browserVoice: document.getElementById("browser-voice"),
+        realtimeHint: document.getElementById("realtime-hint"),
+        turns: document.getElementById("turns"),
+        turnsEmpty: document.getElementById("turns-empty"),
+        turnCount: document.getElementById("turn-count"),
+        footerState: document.getElementById("footer-state"),
+        resetButton: document.getElementById("reset-button"),
+        sampleRow: document.getElementById("sample-row"),
+        restaurantGrid: document.getElementById("restaurant-grid"),
+        pipelineMode: document.getElementById("pipeline-mode"),
+        engineStt: document.getElementById("engine-stt"),
+        engineTts: document.getElementById("engine-tts"),
+      };
+
+      const stages = {
+        stt: { state: document.getElementById("state-stt"), latency: document.getElementById("latency-stt") },
+        agent: { state: document.getElementById("state-agent"), latency: document.getElementById("latency-agent") },
+        tts: { state: document.getElementById("state-tts"), latency: document.getElementById("latency-tts") },
+      };
+
+      const waveBars = Array.from(elements.wave.querySelectorAll("i"));
+
+      let config = null;
+      let realtimeAvailable = false;
+      let history = [];
+      let turnCount = 0;
+      let callActive = false;
+      let busy = false;
+      let speaking = false;
+      let capturing = false;
+      let mediaStream = null;
+      let audioContext = null;
+      let sourceNode = null;
+      let processorNode = null;
+      let resampler = null;
+      let speechChunks = [];
+      let prerollChunks = [];
+      let prerollSamples = 0;
+      let capturedSamples = 0;
+      let silenceSamples = 0;
+      let noiseFloor = 0.006;
+      let voiceFrames = 0;
+      let callStartedAt = 0;
+      let timerHandle = null;
+      let currentAudio = null;
+      let realtimeSocket = null;
+
+      function setFooter(message, isError = false) {
+        elements.footerState.textContent = message;
+        elements.footerState.classList.toggle("error", isError);
+      }
+
+      function setStage(name, state, label, latencyMs) {
+        const stage = stages[name];
+        stage.state.className = "stage-state" + (state ? " " + state : "");
+        stage.state.textContent = label;
+        if (latencyMs === null) {
+          stage.latency.textContent = "--";
+        } else if (latencyMs !== undefined) {
+          stage.latency.textContent = Math.round(latencyMs) + " ms";
+        }
+      }
+
+      function resetStages() {
+        setStage("stt", "", "Idle", null);
+        setStage("agent", "", "Idle", null);
+        setStage("tts", "", "Idle", null);
+      }
+
+      function formatTime(seconds) {
+        const minutes = Math.floor(seconds / 60).toString().padStart(2, "0");
+        const remainder = Math.floor(seconds % 60).toString().padStart(2, "0");
+        return minutes + ":" + remainder;
+      }
+
+      function addTurn(who, text, meta, audioUrl) {
+        if (elements.turnsEmpty) {
+          elements.turnsEmpty.remove();
+          elements.turnsEmpty = null;
+        }
+        const turn = document.createElement("div");
+        turn.className = "turn " + who;
+        const label = document.createElement("span");
+        label.className = "turn-who";
+        label.textContent = who === "guest" ? "Guest" : who === "host" ? "Dastro host" : "Pipeline";
+        const body = document.createElement("p");
+        body.className = "turn-text";
+        body.textContent = text;
+        turn.append(label, body);
+        if (meta) {
+          const info = document.createElement("span");
+          info.className = "turn-meta";
+          info.textContent = meta;
+          turn.append(info);
+        }
+        if (audioUrl) {
+          const player = document.createElement("audio");
+          player.className = "turn-audio";
+          player.controls = true;
+          player.src = audioUrl;
+          turn.append(player);
+        }
+        elements.turns.append(turn);
+        elements.turns.scrollTop = elements.turns.scrollHeight;
+        if (who !== "note") {
+          turnCount += 1;
+          elements.turnCount.textContent = turnCount + (turnCount === 1 ? " turn" : " turns");
+        }
+        return turn;
+      }
+
+      async function readError(response, fallback) {
+        try {
+          const payload = await response.json();
+          return payload.detail || payload.message || fallback;
+        } catch (_error) {
+          return fallback;
+        }
+      }
+
+      // --- Audio helpers -------------------------------------------------
+
+      function createResampler(sourceRate) {
+        // Linear interpolation with the fractional read position carried across
+        // frames, so streamed chunks join without a click at each boundary.
+        const ratio = sourceRate / SAMPLE_RATE;
+        let position = 0;
+        let tail = new Float32Array(0);
+        return function resample(frame) {
+          if (ratio === 1) return frame.slice();
+          const joined = new Float32Array(tail.length + frame.length);
+          joined.set(tail, 0);
+          joined.set(frame, tail.length);
+          const output = [];
+          while (position + 1 < joined.length) {
+            const index = Math.floor(position);
+            const weight = position - index;
+            output.push(joined[index] * (1 - weight) + joined[index + 1] * weight);
+            position += ratio;
+          }
+          const consumed = Math.floor(position);
+          tail = joined.slice(consumed);
+          position -= consumed;
+          return Float32Array.from(output);
+        };
+      }
+
+      function concatChunks(chunks) {
+        const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+        const merged = new Float32Array(total);
+        let offset = 0;
+        for (const chunk of chunks) {
+          merged.set(chunk, offset);
+          offset += chunk.length;
+        }
+        return merged;
+      }
+
+      function toPcm16(samples) {
+        const buffer = new ArrayBuffer(samples.length * 2);
+        const view = new DataView(buffer);
+        for (let index = 0; index < samples.length; index += 1) {
+          const clipped = Math.max(-1, Math.min(1, samples[index]));
+          view.setInt16(index * 2, clipped < 0 ? clipped * 32768 : clipped * 32767, true);
+        }
+        return buffer;
+      }
+
+      function encodeWav(samples) {
+        const pcm = toPcm16(samples);
+        const buffer = new ArrayBuffer(44 + pcm.byteLength);
+        const view = new DataView(buffer);
+        const writeString = (offset, value) => {
+          for (let index = 0; index < value.length; index += 1) view.setUint8(offset + index, value.charCodeAt(index));
+        };
+        writeString(0, "RIFF");
+        view.setUint32(4, 36 + pcm.byteLength, true);
+        writeString(8, "WAVE");
+        writeString(12, "fmt ");
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true);
+        view.setUint16(22, 1, true);
+        view.setUint32(24, SAMPLE_RATE, true);
+        view.setUint32(28, SAMPLE_RATE * 2, true);
+        view.setUint16(32, 2, true);
+        view.setUint16(34, 16, true);
+        writeString(36, "data");
+        view.setUint32(40, pcm.byteLength, true);
+        new Uint8Array(buffer, 44).set(new Uint8Array(pcm));
+        return new Blob([buffer], { type: "audio/wav" });
+      }
+
+      function paintWave(level) {
+        const scaled = Math.min(1, level * 14);
+        for (let index = 0; index < waveBars.length; index += 1) {
+          const jitter = 0.45 + 0.55 * Math.abs(Math.sin(index * 1.7 + Date.now() / 220));
+          const height = 6 + scaled * 46 * jitter;
+          waveBars[index].style.height = height.toFixed(1) + "px";
+        }
+      }
+
+      function idleWave() {
+        for (let index = 0; index < waveBars.length; index += 1) {
+          waveBars[index].style.height = (8 + (index % 5) * 4) + "px";
+        }
+      }
+
+      // --- Pipeline ------------------------------------------------------
+
+      async function runAgentAndSpeak(guestText, sttMeta) {
+        addTurn("guest", guestText, sttMeta);
+        history.push({ role: "user", content: guestText });
+
+        setStage("agent", "working", "Thinking");
+        let reply = "";
+        try {
+          const response = await fetch("/voicelab/agent", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              messages: history,
+              language: elements.language.value,
+              model: elements.openaiModel.value,
+              api_key: elements.openaiKey.value.trim() || null,
+            }),
+          });
+          if (!response.ok) throw new Error(await readError(response, "The agent could not answer"));
+          const payload = await response.json();
+          reply = payload.reply;
+          setStage("agent", "done", "Answered", payload.latency_ms);
+        } catch (error) {
+          setStage("agent", "error", "Failed", null);
+          addTurn("note", "Agent: " + error.message);
+          setFooter("Agent error", true);
+          return;
+        }
+
+        history.push({ role: "assistant", content: reply });
+        const hostTurn = addTurn("host", reply);
+
+        setStage("tts", "working", "Speaking");
+        try {
+          const response = await fetch("/voicelab/tts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              text: reply,
+              language: elements.language.value,
+              voice_id: elements.voice.value,
+              speed: 1,
+            }),
+          });
+          if (!response.ok) throw new Error(await readError(response, "VoiceLab could not generate speech"));
+          const latency = Number(response.headers.get("X-Pipeline-Latency-Ms") || 0);
+          const blob = await response.blob();
+          const url = URL.createObjectURL(blob);
+          const player = document.createElement("audio");
+          player.className = "turn-audio";
+          player.controls = true;
+          player.src = url;
+          hostTurn.append(player);
+          setStage("tts", "done", "Spoken", latency);
+          await playAudio(url);
+        } catch (error) {
+          setStage("tts", "error", "Failed", null);
+          addTurn("note", "VoiceLab TTS: " + error.message);
+          if (elements.browserVoice.checked) {
+            addTurn("note", "Spoken with the browser voice, not VoiceLab.");
+            await speakWithBrowser(reply);
+          }
+        }
+        setFooter(callActive ? "Listening" : "Ready");
+      }
+
+      function playAudio(url) {
+        return new Promise((resolve) => {
+          speaking = true;
+          currentAudio = new Audio(url);
+          currentAudio.onended = () => {
+            speaking = false;
+            currentAudio = null;
+            resolve();
+          };
+          currentAudio.onerror = () => {
+            speaking = false;
+            currentAudio = null;
+            resolve();
+          };
+          currentAudio.play().catch(() => {
+            speaking = false;
+            currentAudio = null;
+            resolve();
+          });
+        });
+      }
+
+      function speakWithBrowser(text) {
+        return new Promise((resolve) => {
+          if (!("speechSynthesis" in window)) {
+            resolve();
+            return;
+          }
+          speaking = true;
+          const utterance = new SpeechSynthesisUtterance(text);
+          const languageTag = { uz: "uz-UZ", ru: "ru-RU", en: "en-US" }[elements.language.value];
+          utterance.lang = languageTag;
+          utterance.onend = () => {
+            speaking = false;
+            resolve();
+          };
+          utterance.onerror = () => {
+            speaking = false;
+            resolve();
+          };
+          window.speechSynthesis.speak(utterance);
+        });
+      }
+
+      function transcribeRealtime(samples) {
+        // Documented flow: mint a ticket, connect, start, stream PCM, commit,
+        // read the single final message. The key never reaches the browser.
+        return new Promise((resolve, reject) => {
+          let settled = false;
+          const fail = (message) => {
+            if (settled) return;
+            settled = true;
+            reject(new Error(message));
+          };
+          fetch("/voicelab/ticket?service=stt", { method: "POST" })
+            .then(async (response) => {
+              if (!response.ok) throw new Error(await readError(response, "Could not mint a realtime ticket"));
+              return response.json();
+            })
+            .then((ticket) => {
+              const socket = new WebSocket(ticket.websocket_url + "?ticket=" + encodeURIComponent(ticket.ticket));
+              socket.binaryType = "arraybuffer";
+              realtimeSocket = socket;
+              const timeout = window.setTimeout(() => {
+                socket.close();
+                fail("Realtime VoiceLab did not answer in time");
+              }, 45000);
+              socket.onopen = () => {
+                socket.send(JSON.stringify({
+                  type: "start",
+                  language: elements.language.value,
+                  audio_format: "pcm_s16le",
+                  sample_rate: SAMPLE_RATE,
+                  channels: 1,
+                  word_timestamps: false,
+                }));
+                const pcm = new Uint8Array(toPcm16(samples));
+                const sliceBytes = SAMPLE_RATE * 2 * 0.2;
+                for (let offset = 0; offset < pcm.byteLength; offset += sliceBytes) {
+                  socket.send(pcm.slice(offset, Math.min(offset + sliceBytes, pcm.byteLength)));
+                }
+                socket.send(JSON.stringify({ type: "commit" }));
+              };
+              socket.onmessage = (event) => {
+                if (typeof event.data !== "string") return;
+                const message = JSON.parse(event.data);
+                if (message.event === "final") {
+                  settled = true;
+                  window.clearTimeout(timeout);
+                  socket.close();
+                  realtimeSocket = null;
+                  resolve({ text: (message.text || "").trim(), duration_ms: message.duration_ms });
+                } else if (message.event === "error") {
+                  window.clearTimeout(timeout);
+                  socket.close();
+                  fail(message.message || message.code || "Realtime VoiceLab returned an error");
+                }
+              };
+              socket.onerror = () => fail("The realtime connection failed");
+              socket.onclose = () => {
+                realtimeSocket = null;
+                fail("The realtime connection closed before a result arrived");
+              };
+            })
+            .catch((error) => fail(error.message));
+        });
+      }
+
+      async function transcribeUtterance(samples) {
+        const engine = elements.sttEngine.value;
+        if (engine === "realtime") {
+          const startedAt = performance.now();
+          try {
+            const result = await transcribeRealtime(samples);
+            return { text: result.text, latency: performance.now() - startedAt, engine: "VoiceLab realtime" };
+          } catch (error) {
+            // Realtime can be turned off per key; the upload path still works.
+            addTurn("note", "Realtime VoiceLab failed (" + error.message + "). Falling back to the upload endpoint.");
+            elements.sttEngine.value = "voicelab";
+            elements.engineStt.textContent = "VoiceLab STT";
+          }
+        }
+        const blob = encodeWav(samples);
+        const form = new FormData();
+        form.append(elements.sttEngine.value === "whisper" ? "file" : "audio", blob, "utterance.wav");
+        form.append("language", elements.language.value);
+        const useWhisper = elements.sttEngine.value === "whisper";
+        const endpoint = useWhisper ? "/transcribe" : "/voicelab/stt";
+        const startedAt = performance.now();
+        const response = await fetch(endpoint, { method: "POST", body: form });
+        if (!response.ok) throw new Error(await readError(response, "Transcription failed"));
+        const payload = await response.json();
+        return {
+          text: (payload.text || "").trim(),
+          latency: payload.latency_ms || performance.now() - startedAt,
+          engine: useWhisper ? "Local Whisper" : "VoiceLab STT",
+        };
+      }
+
+      async function handleUtterance(samples) {
+        busy = true;
+        setFooter("Transcribing");
+        setStage("stt", "working", "Transcribing");
+        setStage("agent", "", "Idle", null);
+        setStage("tts", "", "Idle", null);
+        try {
+          const result = await transcribeUtterance(samples);
+          if (!result.text) {
+            setStage("stt", "", "No speech", null);
+            setFooter(callActive ? "Listening" : "Ready");
+            busy = false;
+            return;
+          }
+          setStage("stt", "done", "Heard", result.latency);
+          const seconds = (samples.length / SAMPLE_RATE).toFixed(1);
+          await runAgentAndSpeak(result.text, result.engine + " · " + seconds + " s");
+        } catch (error) {
+          setStage("stt", "error", "Failed", null);
+          addTurn("note", "Speech to text: " + error.message);
+          setFooter("Speech to text error", true);
+        } finally {
+          busy = false;
+        }
+      }
+
+      // --- Microphone and voice activity ---------------------------------
+
+      function resetCapture() {
+        speechChunks = [];
+        prerollChunks = [];
+        prerollSamples = 0;
+        capturedSamples = 0;
+        silenceSamples = 0;
+        voiceFrames = 0;
+        capturing = false;
+        elements.micStage.classList.remove("capturing");
+      }
+
+      function commitUtterance() {
+        const samples = concatChunks(speechChunks);
+        resetCapture();
+        if (samples.length < (MIN_UTTERANCE_MS / 1000) * SAMPLE_RATE) return;
+        handleUtterance(samples);
+      }
+
+      function onAudioFrame(event) {
+        const input = event.inputBuffer.getChannelData(0);
+        const frame = resampler(input);
+        if (frame.length === 0) return;
+
+        let sum = 0;
+        for (let index = 0; index < frame.length; index += 1) sum += frame[index] * frame[index];
+        const level = Math.sqrt(sum / frame.length);
+
+        if (speaking || busy) {
+          // The host is talking or the pipeline is running: do not listen to it.
+          paintWave(level * 0.2);
+          resetCapture();
+          return;
+        }
+
+        paintWave(level);
+        const threshold = Math.max(0.014, noiseFloor * 3.2);
+
+        if (!capturing) {
+          // Only quiet frames may move the noise floor. Letting speech raise it
+          // pushes the threshold up and clips the start of the next utterance.
+          if (level < threshold) {
+            noiseFloor = Math.min(0.05, noiseFloor * 0.97 + level * 0.03);
+          }
+          prerollChunks.push(frame);
+          prerollSamples += frame.length;
+          const maxPreroll = (PREROLL_MS / 1000) * SAMPLE_RATE;
+          while (prerollSamples > maxPreroll && prerollChunks.length > 1) {
+            prerollSamples -= prerollChunks.shift().length;
+          }
+          voiceFrames = level > threshold ? voiceFrames + 1 : 0;
+          if (voiceFrames >= 2) {
+            capturing = true;
+            speechChunks = prerollChunks.slice();
+            capturedSamples = prerollSamples;
+            silenceSamples = 0;
+            elements.micStage.classList.add("capturing");
+            setFooter("Hearing you");
+          }
+          return;
+        }
+
+        speechChunks.push(frame);
+        capturedSamples += frame.length;
+        silenceSamples = level > threshold ? 0 : silenceSamples + frame.length;
+
+        const hangover = (SILENCE_HANGOVER_MS / 1000) * SAMPLE_RATE;
+        const maxSamples = (MAX_UTTERANCE_MS / 1000) * SAMPLE_RATE;
+        if (silenceSamples >= hangover || capturedSamples >= maxSamples) {
+          commitUtterance();
+        }
+      }
+
+      async function startCall() {
+        try {
+          mediaStream = await navigator.mediaDevices.getUserMedia({
+            audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+          });
+        } catch (error) {
+          setFooter(error.message || "Microphone permission is needed", true);
+          return;
+        }
+        try {
+          audioContext = new AudioContext({ sampleRate: SAMPLE_RATE });
+        } catch (_error) {
+          audioContext = new AudioContext();
+        }
+        if (audioContext.state === "suspended") await audioContext.resume();
+        resampler = createResampler(audioContext.sampleRate);
+        sourceNode = audioContext.createMediaStreamSource(mediaStream);
+        processorNode = audioContext.createScriptProcessor(4096, 1, 1);
+        processorNode.onaudioprocess = onAudioFrame;
+        sourceNode.connect(processorNode);
+        const mutedOutput = audioContext.createGain();
+        mutedOutput.gain.value = 0;
+        processorNode.connect(mutedOutput);
+        mutedOutput.connect(audioContext.destination);
+
+        resetCapture();
+        noiseFloor = 0.006;
+        callActive = true;
+        callStartedAt = Date.now();
+        timerHandle = window.setInterval(() => {
+          elements.timer.textContent = formatTime((Date.now() - callStartedAt) / 1000);
+        }, 250);
+        elements.micStage.classList.add("live");
+        elements.callButton.classList.add("live");
+        elements.callLabel.textContent = "End call";
+        elements.micTitle.textContent = "Listening.";
+        elements.micHelp.textContent = "Speak naturally. A pause of about a second commits the turn to VoiceLab.";
+        setFooter("Listening");
+
+        if (history.length === 0) await openWithGreeting();
+      }
+
+      async function stopCall() {
+        callActive = false;
+        if (timerHandle) window.clearInterval(timerHandle);
+        timerHandle = null;
+        if (processorNode) processorNode.disconnect();
+        if (sourceNode) sourceNode.disconnect();
+        if (mediaStream) mediaStream.getTracks().forEach((track) => track.stop());
+        if (audioContext) await audioContext.close();
+        if (realtimeSocket) realtimeSocket.close();
+        realtimeSocket = null;
+        mediaStream = null;
+        audioContext = null;
+        sourceNode = null;
+        processorNode = null;
+        resetCapture();
+        idleWave();
+        elements.micStage.classList.remove("live");
+        elements.callButton.classList.remove("live");
+        elements.callLabel.textContent = "Start call";
+        elements.micTitle.textContent = "Start the call.";
+        elements.micHelp.textContent = "The microphone listens continuously. Speak, pause, and the pause commits your turn to the pipeline.";
+        setFooter("Ready");
+      }
+
+      async function openWithGreeting() {
+        const greeting = {
+          uz: "Dastro, assalomu alaykum! Qaysi restoranga joy band qilmoqchisiz?",
+          ru: "Дастро, здравствуйте! В какой ресторан хотите забронировать столик?",
+          en: "Dastro, good evening! Which restaurant would you like to book?",
+        }[elements.language.value];
+        history.push({ role: "assistant", content: greeting });
+        const turn = addTurn("host", greeting, "Opening line");
+        if (!elements.voice.value) return;
+        busy = true;
+        setStage("tts", "working", "Speaking");
+        try {
+          const response = await fetch("/voicelab/tts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: greeting, language: elements.language.value, voice_id: elements.voice.value, speed: 1 }),
+          });
+          if (!response.ok) throw new Error(await readError(response, "VoiceLab could not generate speech"));
+          const latency = Number(response.headers.get("X-Pipeline-Latency-Ms") || 0);
+          const url = URL.createObjectURL(await response.blob());
+          const player = document.createElement("audio");
+          player.className = "turn-audio";
+          player.controls = true;
+          player.src = url;
+          turn.append(player);
+          setStage("tts", "done", "Spoken", latency);
+          await playAudio(url);
+        } catch (error) {
+          setStage("tts", "error", "Failed", null);
+          addTurn("note", "VoiceLab TTS: " + error.message);
+          if (elements.browserVoice.checked) {
+            addTurn("note", "Spoken with the browser voice, not VoiceLab.");
+            await speakWithBrowser(greeting);
+          }
+        } finally {
+          busy = false;
+          setFooter(callActive ? "Listening" : "Ready");
+        }
+      }
+
+      // --- Wiring --------------------------------------------------------
+
+      elements.callButton.addEventListener("click", () => {
+        if (callActive) {
+          stopCall();
+        } else {
+          startCall();
+        }
+      });
+
+      async function sendTypedLine(text) {
+        const line = text.trim();
+        if (!line || busy) return;
+        elements.textInput.value = "";
+        busy = true;
+        setStage("stt", "done", "Typed", null);
+        stages.stt.latency.textContent = "skipped";
+        setFooter("Working");
+        try {
+          await runAgentAndSpeak(line, "Typed, microphone skipped");
+        } finally {
+          busy = false;
+        }
+      }
+
+      elements.sendButton.addEventListener("click", () => sendTypedLine(elements.textInput.value));
+      elements.textInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          sendTypedLine(elements.textInput.value);
+        }
+      });
+
+      elements.resetButton.addEventListener("click", () => {
+        history = [];
+        turnCount = 0;
+        elements.turnCount.textContent = "0 turns";
+        elements.turns.innerHTML = "";
+        const empty = document.createElement("p");
+        empty.className = "turn-empty";
+        empty.id = "turns-empty";
+        empty.innerHTML = "Dastro, assalomu alaykum.<br />Your call will appear here.";
+        elements.turns.append(empty);
+        elements.turnsEmpty = empty;
+        resetStages();
+        setFooter(callActive ? "Listening" : "Ready");
+      });
+
+      elements.language.addEventListener("change", () => {
+        loadVoices(elements.language.value);
+      });
+
+      elements.sttEngine.addEventListener("change", () => {
+        const engine = elements.sttEngine.value;
+        if (engine === "realtime" && !realtimeAvailable) {
+          elements.sttEngine.value = "voicelab";
+          addTurn("note", "Realtime VoiceLab is not enabled for this API key, so the upload path stays selected.");
+          return;
+        }
+        elements.engineStt.textContent = { voicelab: "VoiceLab STT", realtime: "VoiceLab realtime", whisper: "Local Whisper" }[engine];
+      });
+
+      async function loadVoices(language) {
+        elements.voice.innerHTML = "<option value=''>Loading voices</option>";
+        try {
+          const response = await fetch("/voicelab/voices?language=" + encodeURIComponent(language));
+          if (!response.ok) throw new Error(await readError(response, "Could not load voices"));
+          const payload = await response.json();
+          elements.voice.innerHTML = "";
+          for (const voice of payload.data) {
+            const option = document.createElement("option");
+            option.value = voice.id;
+            option.textContent = voice.display_name + (voice.short_description ? " · " + voice.short_description : "");
+            elements.voice.append(option);
+          }
+          if (payload.data.length === 0) {
+            elements.voice.innerHTML = "<option value=''>No voices for this language</option>";
+          }
+        } catch (error) {
+          elements.voice.innerHTML = "<option value=''>Voices unavailable</option>";
+          setFooter(error.message, true);
+        }
+      }
+
+      function renderSamples() {
+        elements.sampleRow.innerHTML = "";
+        for (const sample of config.sample_prompts) {
+          const chip = document.createElement("button");
+          chip.className = "chip";
+          chip.type = "button";
+          const tag = document.createElement("small");
+          tag.textContent = sample.language;
+          chip.append(tag, document.createTextNode(sample.text));
+          chip.addEventListener("click", () => {
+            elements.language.value = sample.language;
+            loadVoices(sample.language);
+            sendTypedLine(sample.text);
+          });
+          elements.sampleRow.append(chip);
+        }
+      }
+
+      function renderRestaurants() {
+        elements.restaurantGrid.innerHTML = "";
+        for (const restaurant of config.restaurants) {
+          const card = document.createElement("button");
+          card.className = "restaurant";
+          card.type = "button";
+          const name = document.createElement("strong");
+          name.textContent = restaurant.name;
+          const detail = document.createElement("span");
+          detail.textContent = restaurant.district + " · " + restaurant.cuisine + " · " + restaurant.seats + " seats";
+          const note = document.createElement("span");
+          note.textContent = restaurant.note;
+          const price = document.createElement("span");
+          price.className = "price";
+          price.textContent = "¤".repeat(restaurant.price);
+          card.append(name, detail, note, price);
+          card.addEventListener("click", () => {
+            const question = {
+              uz: restaurant.name + "da bugun kechqurun to'rt kishiga joy bormi?",
+              ru: "Есть место на четверых сегодня вечером в " + restaurant.name + "?",
+              en: "Do you have a table for four tonight at " + restaurant.name + "?",
+            }[elements.language.value];
+            elements.textInput.value = question;
+            elements.textInput.focus();
+          });
+          elements.restaurantGrid.append(card);
+        }
+      }
+
+      async function loadConfig() {
+        try {
+          const response = await fetch("/voicelab/config");
+          if (!response.ok) throw new Error("Config unavailable");
+          config = await response.json();
+        } catch (error) {
+          elements.serviceDot.classList.add("down");
+          elements.serviceLabel.textContent = "Service unavailable";
+          setFooter("Offline", true);
+          return;
+        }
+
+        elements.openaiModel.innerHTML = "";
+        for (const model of config.openai_models) {
+          const option = document.createElement("option");
+          option.value = model;
+          option.textContent = model;
+          elements.openaiModel.append(option);
+        }
+        elements.openaiModel.value = config.openai_model;
+
+        if (!config.openai_key_present) {
+          elements.openaiKeyNote.textContent = "(required, no server key)";
+          elements.openaiKeyNote.className = "error";
+        }
+
+        realtimeAvailable = Boolean(config.realtime.available);
+        const realtimeOption = elements.sttEngine.querySelector("option[value='realtime']");
+        realtimeOption.disabled = !realtimeAvailable;
+        realtimeOption.textContent = realtimeAvailable ? "VoiceLab realtime" : "VoiceLab realtime (disabled)";
+        elements.realtimeHint.textContent = realtimeAvailable
+          ? "Realtime VoiceLab STT is enabled for this key. Audio is sent one utterance at a time and is not stored by this page."
+          : "Realtime VoiceLab is off for this key: " + config.realtime.detail + " Utterances go to the upload endpoint instead, committed on each pause.";
+
+        const parts = [];
+        parts.push(config.voicelab_key_present ? "VoiceLab key loaded" : "No VoiceLab key");
+        parts.push(config.openai_key_present ? "OpenAI key loaded" : "No OpenAI key");
+        elements.serviceLabel.textContent = parts.join(" · ");
+        elements.serviceDot.classList.toggle("ready", config.voicelab_key_present && config.openai_key_present);
+        elements.serviceDot.classList.toggle("down", !config.voicelab_key_present);
+
+        renderSamples();
+        renderRestaurants();
+        await loadVoices(elements.language.value);
+        setFooter("Ready");
+      }
+
+      idleWave();
+      resetStages();
+      loadConfig();
+    </script>
+  </body>
+</html>

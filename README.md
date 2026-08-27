@@ -214,6 +214,74 @@ Returns `audio/wav` bytes directly, or a JSON error body with `503` while assets
 
 OpenAI-compatible JSON shape: `{ "input": "...", "voice": "warm" }` (voice maps to the emotion preset). Returns `audio/wav`. Can't take an uploaded reference clip — use `/synthesize` for that.
 
+## VoiceLab pipeline bench
+
+`GET /voicelab` serves a second page that runs a complete voice loop against the
+VoiceLab API: **live speech to text, then an OpenAI reservation agent, then text
+to speech**. It is a bench for the VoiceLab models, not part of the Whisper
+service. The agent is Dastro's phone host, working from the twenty sample
+restaurants and the availability rules in `realtime-prompt.md`.
+
+Both credentials stay on this server. The browser only ever calls this service,
+so no key or realtime ticket reaches the page.
+
+```bash
+cp .env.example .env
+# then fill in VOICELAB_API_KEY and OPENAI_API_KEY
+uvicorn app:app --host 0.0.0.0 --port 8090
+```
+
+Open `http://localhost:8090/voicelab`. Press **Start call** and speak: the
+microphone listens continuously, and a pause of about a second commits your turn
+to the pipeline. You can also type a guest line, click one of the sample lines,
+or click a restaurant to ask about it. Every stage shows its own state and
+latency, and the transcript keeps the audio for each host turn.
+
+Set `PRELOAD_MODEL=false` when you only want this bench: it does not use the
+local Whisper model unless you pick `Local Whisper` as the speech-to-text engine.
+
+### Speech-to-text engines
+
+| Engine | Path | Notes |
+| --- | --- | --- |
+| VoiceLab STT | `POST /v1/stt` | Default. One utterance per pause, polled to completion |
+| VoiceLab realtime | `POST /v1/ticket` then `wss://.../v1/stt/stream` | Only when realtime is enabled for the key; falls back to the upload path automatically |
+| Local Whisper | `POST /transcribe` | The `OvozifyLabs/whisper-small-uz-v1` model in this service |
+
+The page disables the realtime option when `POST /v1/ticket` returns `404`, which
+is what VoiceLab returns while realtime is off for an API key.
+
+### Routes
+
+| Method | Route | Purpose |
+| --- | --- | --- |
+| `GET` | `/voicelab` | The bench page |
+| `GET` | `/voicelab/config` | Key presence, realtime availability, restaurants, sample lines |
+| `GET` | `/voicelab/voices?language={code}` | VoiceLab voice catalogue for the language |
+| `POST` | `/voicelab/ticket?service=stt` | Mints a short-lived realtime ticket |
+| `POST` | `/voicelab/stt` | One utterance to VoiceLab STT, waited out to a transcript |
+| `POST` | `/voicelab/agent` | One reservation-host turn from OpenAI |
+| `POST` | `/voicelab/tts` | The reply spoken by VoiceLab, returned as one WAV |
+
+`POST /voicelab/agent` accepts an `api_key` field so the page can override the
+server's OpenAI key for a session. `POST /voicelab/tts` splits replies longer
+than VoiceLab's 1,000-byte limit on sentence boundaries and joins the audio into
+a single WAV.
+
+### VoiceLab and OpenAI settings
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `VOICELAB_API_KEY` | empty | VoiceLab developer key, `vlk_...` |
+| `VOICELAB_BASE_URL` | `https://api.voicelab.uz` | VoiceLab API root |
+| `VOICELAB_TIMEOUT_SECONDS` | `90` | Upstream request timeout |
+| `VOICELAB_STT_POLL_SECONDS` | `0.7` | Gap between transcription polls |
+| `VOICELAB_STT_POLL_TIMEOUT_SECONDS` | `90` | How long to wait for a transcription |
+| `OPENAI_API_KEY` | empty | Key for the reservation agent |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | OpenAI-compatible API root |
+| `OPENAI_MODEL` | `gpt-4o-mini` | Default agent model |
+| `OPENAI_TIMEOUT_SECONDS` | `45` | Agent request timeout |
+
 ## Configuration
 
 | Variable | Default | Purpose |

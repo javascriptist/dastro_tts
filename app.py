@@ -21,6 +21,8 @@ from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
+import voicelab
+
 
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
@@ -586,6 +588,11 @@ async def preload_model() -> None:
     tts_runtime.start_preload()
 
 
+@app.on_event("shutdown")
+async def close_upstream_clients() -> None:
+    await voicelab.close_client()
+
+
 @app.middleware("http")
 async def log_requests(request: Request, call_next: Any) -> Any:
     started_at = time.perf_counter()
@@ -663,6 +670,12 @@ def playground() -> FileResponse:
     return FileResponse(BASE_DIR / "static" / "index.html")
 
 
+@app.get("/voicelab")
+def voicelab_bench() -> FileResponse:
+    """Live STT to OpenAI agent to VoiceLab TTS, in one page."""
+    return FileResponse(BASE_DIR / "static" / "voicelab.html")
+
+
 @app.get("/health")
 def health() -> dict[str, Any]:
     return {
@@ -691,6 +704,9 @@ async def transcribe(
     language: str = Form("auto"),
 ) -> TranscriptionResponse:
     return await _transcribe_upload(request, file, language)
+
+
+app.include_router(voicelab.router)
 
 
 @app.post("/v1/audio/transcriptions")
